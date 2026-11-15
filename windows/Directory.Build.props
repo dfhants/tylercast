@@ -1,0 +1,12 @@
+<Project>
+  <!-- Shared by every project. The core targets plain net10.0 so it builds and
+       tests on macOS; Windows-only projects add -windows themselves. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <Version>0.1.0</Version>
+  </PropertyGroup>
+</Project>

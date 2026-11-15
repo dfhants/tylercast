@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Discovery, SOAP, HTTP server, TS muxer, pacer: no platform code. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="TylerCast.Core.Tests" />
+  </ItemGroup>
+</Project>
