@@ -15,7 +15,7 @@ enum CLI {
 
       discover [--timeout S] [--st ssdp:all]
       play     [--tv IP|name] [--avt URL] [stream options]
-      serve    [stream options]                     no TV; open http://<mac>:8090/stream.ts
+      serve    [stream options]                     no TV; open the URL it prints (random path)
       record   FILE [--seconds N] [stream options]  no TV, no server
 
     stream options:
@@ -147,10 +147,13 @@ enum CLI {
             throw CLIError("No MediaRenderer answered SSDP. Is the TV on (not standby), on this network, with DLNA remote on? "
                 + "Or pass --avt http://IP:55000/dmr/control_2")
         }
-        if let tv = all.first(where: { want == nil || $0.ip.contains(want!) || $0.name.lowercased().contains(want!.lowercased()) }) {
-            return tv
-        }
-        throw CLIError("No renderer with AVTransport matched \(want ?? "")")
+        // An exact IP, or a name that only one renderer has. Any device can answer
+        // SSDP with any name, so an ambiguous choice is refused, not guessed.
+        let matches = all.filter { want == nil || $0.ip == want! || $0.name.lowercased().contains(want!.lowercased()) }
+        if matches.count == 1 { return matches[0] }
+        if matches.isEmpty { throw CLIError("No renderer with AVTransport matched \(want ?? "")") }
+        let list = matches.map { "\($0.name) (\($0.ip))" }.joined(separator: ", ")
+        throw CLIError("Several renderers match: \(list). Pick one with --tv IP")
     }
 
     @MainActor
@@ -175,7 +178,8 @@ enum CLI {
     static func serve(_ a: Args) async throws -> Int32 {
         let p = Pipeline(options: try options(a))
         try await p.start(serve: true)
-        Log.info("Serving http://\(localAddress(towards: "8.8.8.8") ?? "<this mac>"):\(p.options.port)/stream.ts. Ctrl-C to stop.")
+        Log.info("Serving http://\(localAddress(towards: "8.8.8.8") ?? "<this mac>"):\(p.options.port)\(p.streamPath) "
+                 + "to anyone on the network. Ctrl-C to stop.")
         var stopper: SignalStopper?
         let code = await withCheckedContinuation { (c: CheckedContinuation<Int32, Never>) in
             stopper = SignalStopper { p.stop(); c.resume(returning: 0) }

@@ -75,12 +75,30 @@ public final class StreamServer {
     /// from connect until the first keyframe, so a mid-GOP join adds up to a
     /// whole keyframe interval (2s) of permanent delay.
     public var onJoin: (() -> Void)?
+    /// When set, only this IPv4 address (the TV) may connect; anyone else is
+    /// disconnected before a byte is read. The stream is the live screen and sound.
+    public let allowedPeer: String?
+    /// When set, listen only on this local address (the interface facing the
+    /// TV), not on every interface.
+    public let bindHost: String?
 
     public init(port: UInt16 = 8090, path: String = "/stream.ts", headers: StreamHeaders, broadcaster: Broadcaster,
-                maxBacklogBytes: Int = 4_000_000) {
+                maxBacklogBytes: Int = 4_000_000, allowedPeer: String? = nil, bindHost: String? = nil) {
         self.port = port; self.path = path; self.headers = headers; self.broadcaster = broadcaster
         self.maxBacklog = maxBacklogBytes
+        self.allowedPeer = allowedPeer.map(Self.normalize)
+        self.bindHost = bindHost
     }
+
+    /// "::ffff:192.0.2.5" and "192.0.2.5%en0" -> "192.0.2.5".
+    public static func normalize(_ ip: String) -> String {
+        var s = ip.components(separatedBy: "%").first ?? ip
+        if s.lowercased().hasPrefix("::ffff:") { s = String(s.dropFirst(7)) }
+        return s
+    }
+
+    /// A random, unguessable stream path for one session.
+    public static func randomPath() -> String { "/\(UUID().uuidString.lowercased()).ts" }
 
     /// Starts listening; returns once the listener is ready or has failed.
     /// The TV's last connection lingers in TIME_WAIT for ~30s after a session,
@@ -106,7 +124,13 @@ public final class StreamServer {
     private func listenOnce() throws {
         let params = NWParameters.tcp
         params.allowLocalEndpointReuse = true
-        let l = try NWListener(using: params, on: NWEndpoint.Port(rawValue: port)!)
+        let l: NWListener
+        if let bindHost {
+            params.requiredLocalEndpoint = .hostPort(host: NWEndpoint.Host(bindHost), port: NWEndpoint.Port(rawValue: port)!)
+            l = try NWListener(using: params)
+        } else {
+            l = try NWListener(using: params, on: NWEndpoint.Port(rawValue: port)!)
+        }
         let ready = DispatchSemaphore(value: 0)
         var failure: Error?
         l.stateUpdateHandler = { state in
@@ -121,7 +145,8 @@ public final class StreamServer {
         listener = l
         if ready.wait(timeout: .now() + 3) == .timedOut { l.cancel(); listener = nil; throw NWError.posix(.ETIMEDOUT) }
         if let e = failure { l.cancel(); listener = nil; throw e }
-        Log.info("HTTP server listening on port \(port)")
+        Log.info("HTTP server listening on \(bindHost ?? "all interfaces") port \(port)"
+                 + (allowedPeer.map { ", for \($0) only" } ?? ""))
     }
 
     public func stop() {
@@ -131,6 +156,14 @@ public final class StreamServer {
     }
 
     private func accept(_ c: NWConnection) {
+        if let allowed = allowedPeer {
+            let from = Self.normalize(peer(c))
+            guard from == allowed else {
+                Log.warn("Refused a connection from \(from): only the TV (\(allowed)) may watch")
+                c.cancel()
+                return
+            }
+        }
         connections[ObjectIdentifier(c)] = c
         c.stateUpdateHandler = { [weak self, weak c] state in
             guard let self, let c else { return }

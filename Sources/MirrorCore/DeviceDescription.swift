@@ -43,6 +43,11 @@ public enum DeviceDescription {
         for s in d.services {
             guard let type = s["serviceType"], let ctl = s["controlURL"],
                   let url = URL(string: ctl, relativeTo: base)?.absoluteURL else { continue }
+            // SOAP calls (with the stream URL) go only to the device that answered SSDP.
+            guard isOnDevice(url, ip: ip) else {
+                Log.warn("Ignoring \(type) at \(url.absoluteString): not plain http on \(ip)")
+                continue
+            }
             services[type] = url
         }
         let model = [d.manufacturer, d.modelName].compactMap { $0 }.joined(separator: " ")
@@ -50,8 +55,18 @@ public enum DeviceDescription {
         return Renderer(location: location, ip: ip, name: d.friendlyName ?? ip, model: model, services: services)
     }
 
+    /// True for an http URL whose host is `ip`. Any device on the network can
+    /// answer SSDP, so its LOCATION and control URLs must point back at itself:
+    /// no file:// reads, no requests to other hosts on its say-so.
+    public static func isOnDevice(_ url: URL, ip: String) -> Bool {
+        url.scheme?.lowercased() == "http" && url.host == ip
+    }
+
     public static func fetch(_ hit: SSDPResponse) async throws -> Renderer {
         guard let url = URL(string: hit.location) else { throw ParseError(description: "bad LOCATION \(hit.location)") }
+        guard isOnDevice(url, ip: hit.ip) else {
+            throw ParseError(description: "LOCATION \(hit.location) is not plain http on \(hit.ip), the address that answered")
+        }
         var req = URLRequest(url: url, timeoutInterval: 5)
         req.httpMethod = "GET"
         let (data, _) = try await URLSession.shared.data(for: req)

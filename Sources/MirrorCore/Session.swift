@@ -68,13 +68,19 @@ public final class Pipeline {
         pacer = Pacer(muxer: TSMuxer(config: mc), broadcaster: broadcaster, delay: options.delay)
     }
 
-    public func start(serve: Bool) async throws {
+    /// The stream's path while serving: random per pipeline, so it can't be guessed.
+    public let streamPath = StreamServer.randomPath()
+
+    /// `allowedPeer`: only that address may fetch the stream (the TV).
+    /// `bindHost`: listen on that local address only.
+    public func start(serve: Bool, allowedPeer: String? = nil, bindHost: String? = nil) async throws {
         if serve {
             var h = StreamHeaders()
             h.contentType = options.mime
             h.contentFeatures = options.contentFeatures
             h.tlag = options.tlag
-            let s = StreamServer(port: options.port, headers: h, broadcaster: broadcaster)
+            let s = StreamServer(port: options.port, path: streamPath, headers: h, broadcaster: broadcaster,
+                                 allowedPeer: allowedPeer, bindHost: bindHost)
             s.onJoin = { [weak self] in self?.clock?.requestKeyframe() }
             do { try s.start() } catch {
                 throw CaptureError(description: "cannot listen on port \(options.port): \(error) (another copy running?)")
@@ -260,10 +266,10 @@ public final class MirrorSession {
             state = .connecting("starting capture and encoder")
             let p = Pipeline(options: options)
             p.onFailure = { [weak self] why in Task { @MainActor in await self?.fail(why) } }
-            try await p.start(serve: true)
+            try await p.start(serve: true, allowedPeer: tv.ip, bindHost: host)
             pipeline = p
 
-            let url = "http://\(host):\(options.port)/stream.ts"
+            let url = "http://\(host):\(options.port)\(p.streamPath)"
             let protocolInfo = DLNA.protocolInfo(mime: options.mime, features: options.contentFeatures)
             Log.info("Serving \(url)  (Content-Type \(options.mime))")
             Log.info("protocolInfo \(protocolInfo)")
@@ -333,13 +339,25 @@ public final class MirrorSession {
 
     /// Logs the TV's transport state every 5s; if it stops after playing
     /// (remote control, input change) the session ends and says so.
+    /// State checks in a row the TV may miss before the session ends.
+    static let maxMissedPolls = 3
+
     private func poll(_ t: AVTransport, name: String) {
         pollTask = Task { [weak self] in
-            var last: String?, played = false
+            var last: String?, played = false, misses = 0
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 5_000_000_000)
                 if Task.isCancelled { return }
-                guard let s = try? await t.transportState() else { continue }
+                // A TV in standby or off the network never answers again: stop
+                // rather than keep capturing and serving the screen to no one.
+                let answer: String?
+                do { answer = try await t.transportState(); misses = 0 } catch {
+                    misses += 1
+                    Log.info("TV didn't answer a state check (\(misses) of \(Self.maxMissedPolls)): \(error)")
+                    if misses >= Self.maxMissedPolls { await self?.fail("The TV stopped answering"); return }
+                    continue
+                }
+                guard let s = answer else { continue }
                 if s != last { Log.info("TV transport state: \(s)"); last = s }
                 if s == "PLAYING" { played = true }
                 if played, s == "STOPPED" || s == "NO_MEDIA_PRESENT" {

@@ -13,7 +13,7 @@ third-party dependencies.
 | Encode | VideoToolbox H.264 Main 4.1, 1920x1080, a steady 25fps (the last picture is repeated when the screen is still), keyframe every 2s, no B-frames, real time, 6 Mbit/s with bursts capped per 0.5s |
 | Audio | The Mac's sound as **AAC** (plays on the test TV, though it lists only AC-3). `--audio silent-ac3` sends a silent AC-3 track instead |
 | Mux | Its own MPEG-TS muxer. 188-byte packets, PAT/PMT/SDT every 100ms and before every keyframe, PCR every 20ms, null-padded to a constant 20 Mbit/s |
-| Serve | Network.framework HTTP/1.0 on :8090, `/stream.ts`, HEAD and GET. Every connection joins the one running stream |
+| Serve | Network.framework HTTP/1.0 on :8090 (the TV-facing interface only), a random `/<uuid>.ts` path per session, HEAD and GET. Only the TV's IP may connect. Every connection joins the one running stream |
 | Control | SOAP Stop → SetAVTransportURI (with DIDL-Lite) → Play. Stop again on quit. The TV's state is polled every 5s |
 
 ## Build and test
@@ -22,7 +22,7 @@ third-party dependencies.
 cd tylercast
 swift build                # debug build: .build/debug/TylerCast
 swift test -Xswiftc -plugin-path -Xswiftc /Library/Developer/CommandLineTools/usr/lib/swift/host/plugins/testing
-                           # 38 tests: TS structure, PAT/PMT (byte-exact vs ffmpeg), PCR, SOAP, DIDL, HTTP, AAC (decoded with ffmpeg if installed)
+                           # 45 tests: TS structure, PAT/PMT (byte-exact vs ffmpeg), PCR, SOAP, DIDL, HTTP, AAC (decoded with ffmpeg if installed)
                            # (the plugin path is needed with Command Line Tools 27, which don't find
                            # swift-testing's macros by themselves)
 ./make-app.sh              # release build in an app bundle: build/TylerCast.app
@@ -55,7 +55,7 @@ Phase 1. Every SSDP, SOAP and HTTP exchange is logged.
 ```bash
 .build/debug/TylerCast discover                        # TVs, their services, the sink list
 .build/debug/TylerCast record /tmp/t.ts --seconds 10   # no TV: capture → file; check with ffprobe
-.build/debug/TylerCast serve --test-pattern            # no TV: open http://<mac>:8090/stream.ts in VLC/ffplay
+.build/debug/TylerCast serve --test-pattern            # no TV: open the URL it prints in VLC/ffplay
 .build/debug/TylerCast play --test-pattern -v          # colour bars on the TV: tests the DLNA path alone
 .build/debug/TylerCast play --margin 4                 # the screen on the TV; Ctrl-C sends Stop
 ```

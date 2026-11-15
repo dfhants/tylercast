@@ -227,6 +227,101 @@ let features = "DLNA.ORG_PN=AVC_TS_HD_50_AC3_ISO;DLNA.ORG_OP=00;DLNA.ORG_CI=0;DL
     }
 }
 
+@Suite struct StreamAccessTests {
+    /// Sends a GET and returns whatever comes back before the server closes (or 2s pass).
+    static func get(_ port: UInt16, path: String) async -> Data {
+        await withCheckedContinuation { cont in
+            let c = NWConnection(host: "127.0.0.1", port: NWEndpoint.Port(rawValue: port)!, using: .tcp)
+            let lock = NSLock()
+            var buf = Data(), done = false
+            func finish() { lock.withLock { if !done { done = true; c.cancel(); cont.resume(returning: buf) } } }
+            func read() {
+                c.receive(minimumIncompleteLength: 1, maximumLength: 65536) { d, _, complete, err in
+                    if let d { lock.withLock { buf.append(d) } }
+                    if complete || err != nil || lock.withLock({ buf.count }) > 4096 { finish() } else { read() }
+                }
+            }
+            c.start(queue: .global())
+            c.send(content: Data("GET \(path) HTTP/1.0\r\n\r\n".utf8), completion: .contentProcessed { _ in })
+            read()
+            DispatchQueue.global().asyncAfter(deadline: .now() + 2) { finish() }
+        }
+    }
+
+    static func feed(_ b: Broadcaster) -> Task<Void, Never> {
+        Task.detached {
+            let m = TSMuxer()
+            while !Task.isCancelled { b.send(m.produce(count: 64)); try? await Task.sleep(nanoseconds: 5_000_000) }
+        }
+    }
+
+    @Test func randomPathsDiffer() {
+        let a = StreamServer.randomPath(), b = StreamServer.randomPath()
+        #expect(a != b && a.hasPrefix("/") && a.hasSuffix(".ts") && a.count > 30)
+    }
+
+    @Test func normalizesPeerAddresses() {
+        #expect(StreamServer.normalize("::ffff:192.0.2.5") == "192.0.2.5")
+        #expect(StreamServer.normalize("192.0.2.5%en0") == "192.0.2.5")
+        #expect(StreamServer.normalize("192.0.2.5") == "192.0.2.5")
+    }
+
+    /// Someone other than the TV gets nothing, not even headers, even with the right path.
+    @Test func refusesOtherPeers() async throws {
+        let b = Broadcaster(), port: UInt16 = 18_094, path = StreamServer.randomPath()
+        let server = StreamServer(port: port, path: path, headers: StreamHeaders(), broadcaster: b, allowedPeer: "192.0.2.10")
+        try server.start()
+        defer { server.stop() }
+        let feeder = Self.feed(b)
+        defer { feeder.cancel() }
+        #expect(await Self.get(port, path: path).isEmpty)
+    }
+
+    /// The TV, on the bound address, with the right path, gets the stream; a wrong path is 404.
+    @Test func allowsTheTVOnTheBoundAddress() async throws {
+        let b = Broadcaster(), port: UInt16 = 18_096, path = StreamServer.randomPath()
+        let server = StreamServer(port: port, path: path, headers: StreamHeaders(), broadcaster: b,
+                                  allowedPeer: "127.0.0.1", bindHost: "127.0.0.1")
+        try server.start()
+        defer { server.stop() }
+        let feeder = Self.feed(b)
+        defer { feeder.cancel() }
+        let ok = await Self.get(port, path: path)
+        #expect(String(decoding: ok.prefix(15), as: UTF8.self) == "HTTP/1.0 200 OK")
+        #expect(ok.count > 1000)
+        let nf = await Self.get(port, path: "/stream.ts")
+        #expect(String(decoding: nf.prefix(12), as: UTF8.self) == "HTTP/1.0 404")
+    }
+}
+
+@Suite struct DiscoveryTrustTests {
+    @Test func locationMustBeHTTPOnTheAnsweringHost() {
+        let ip = "192.0.2.175"
+        #expect(DeviceDescription.isOnDevice(URL(string: "http://192.0.2.175:55000/dmr/ddd.xml")!, ip: ip))
+        #expect(!DeviceDescription.isOnDevice(URL(string: "file:///etc/passwd")!, ip: ip))
+        #expect(!DeviceDescription.isOnDevice(URL(string: "https://192.0.2.175/x")!, ip: ip))
+        #expect(!DeviceDescription.isOnDevice(URL(string: "http://192.0.2.17/x")!, ip: ip))
+        #expect(!DeviceDescription.isOnDevice(URL(string: "http://evil.example/x")!, ip: ip))
+    }
+
+    @Test func fetchRefusesForeignLocation() async {
+        let hit = SSDPResponse(ip: "192.0.2.175", location: "file:///etc/hosts", server: "", st: "")
+        await #expect(throws: DeviceDescription.ParseError.self) { try await DeviceDescription.fetch(hit) }
+    }
+
+    /// Control URLs pointing at another host (directly, or via URLBase) are dropped.
+    @Test func dropsControlURLsOnOtherHosts() throws {
+        let xml = "<root xmlns=\"urn:schemas-upnp-org:device-1-0\"><URLBase>http://10.0.0.99:8080/</URLBase><device>"
+            + "<friendlyName>X</friendlyName><serviceList>"
+            + "<service><serviceType>\(DLNA.avTransport)</serviceType><controlURL>avt/ctl</controlURL></service>"
+            + "<service><serviceType>\(DLNA.connectionManager)</serviceType><controlURL>file:///tmp/x</controlURL></service>"
+            + "</serviceList></device></root>"
+        let r = try DeviceDescription.parse(Data(xml.utf8), location: "http://10.0.0.5:1/desc.xml", ip: "10.0.0.5")
+        #expect(r.avTransport == nil)
+        #expect(r.connectionManager == nil)
+    }
+}
+
 final class Counter: @unchecked Sendable {
     private let l = NSLock(); private var n = 0
     func add() { l.withLock { n += 1 } }
