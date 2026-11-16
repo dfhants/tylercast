@@ -12,7 +12,7 @@ parts run on Windows, in CI or on a PC.
 | Project | What |
 |---|---|
 | `src/TylerCast.Core` | Portable engine: discovery, SOAP, TS muxer, pacer, stream server, session. Runs on macOS too |
-| `src/TylerCast.Windows` | Screen capture (Desktop Duplication, GDI fallback), Media Foundation H.264 and AAC encoders (hardware first: Intel Quick Sync, NVIDIA, AMD; Microsoft's software encoder as fallback), WASAPI loopback sound, self-test |
+| `src/TylerCast.Windows` | Screen capture (Desktop Duplication, GDI fallback), Media Foundation H.264 and AAC encoders (hardware encoders first, such as Intel Quick Sync; Microsoft's software encoder as the fallback), WASAPI loopback sound, self-test |
 | `src/TylerCast.App` | The tray app (WPF, Windows 11 Fluent theme): `TylerCast.exe` |
 | `src/TylerCast.Cli` | `tylercast.exe`: `discover`, `play`, `serve`, `record`, `diag`, `selftest` |
 | `tests/TylerCast.Core.Tests` | xUnit tests of the engine, including a fake TV and security tests |
