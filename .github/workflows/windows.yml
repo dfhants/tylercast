@@ -47,6 +47,20 @@ jobs:
         run: Install-WindowsFeature Server-Media-Foundation | Format-List
       - name: Publish tylercast.exe (as the test rounds get it)
         run: dotnet publish src/TylerCast.Cli -f net10.0-windows -r win-x64 -c Release --self-contained -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=none -o out/win-x64
+      - name: Publish TylerCast.exe (the tray app)
+        run: dotnet publish src/TylerCast.App -r win-x64 -c Release --self-contained -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=none -o out/app
+      # The flyout and settings window, rendered in every state, light and dark, to look at on the Mac.
+      - name: Screenshots of the tray app
+        continue-on-error: true
+        timeout-minutes: 3
+        run: out\app\TylerCast.exe --screenshot ci-screenshots | Out-Host
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: windows/ci-screenshots
+          retention-days: 7
       # No screen, speakers or TV here, so some checks fail by design; this catches
       # crashes and bad Windows API calls before a real test round.
       - name: Selftest on the runner

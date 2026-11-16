@@ -1,5 +1,6 @@
 <Solution>
   <Folder Name="/src/">
+    <Project Path="src/TylerCast.App/TylerCast.App.csproj" />
     <Project Path="src/TylerCast.Cli/TylerCast.Cli.csproj" />
     <Project Path="src/TylerCast.Core/TylerCast.Core.csproj" />
     <Project Path="src/TylerCast.Windows/TylerCast.Windows.csproj" />

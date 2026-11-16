@@ -20,6 +20,9 @@ public interface IVideoSource : IDisposable
     /// <summary>The next frame should be a keyframe (a TV has just connected).</summary>
     void RequestKeyframe();
 
+    /// <summary>Black border on each edge, in percent; sources that draw the screen apply it live.</summary>
+    double MarginPercent { get => 0; set { } }
+
     void Stop();
 }
 

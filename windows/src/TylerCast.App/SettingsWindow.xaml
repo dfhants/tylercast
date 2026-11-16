@@ -1,0 +1,96 @@
+<Window x:Class="TylerCast.App.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="TylerCast settings" Width="480" SizeToContent="Height" ResizeMode="NoResize"
+        WindowStartupLocation="CenterScreen" FontSize="14">
+  <!-- Laid out like a page of Windows 11 Settings: one card per setting, the switch on the right. -->
+  <Window.Resources>
+    <Style x:Key="Card" TargetType="Border">
+      <Setter Property="Background" Value="{DynamicResource CardBackgroundFillColorDefaultBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource CardStrokeColorDefaultBrush}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="6" />
+      <Setter Property="Padding" Value="16,12" />
+      <Setter Property="Margin" Value="0,0,0,4" />
+      <Setter Property="MinHeight" Value="68" />
+    </Style>
+    <Style x:Key="Secondary" TargetType="TextBlock">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+
+    <!-- Windows 11's toggle switch: "Off"/"On" then the switch. -->
+    <Style x:Key="Switch" TargetType="CheckBox">
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="CheckBox">
+            <StackPanel Orientation="Horizontal" Background="Transparent">
+              <TextBlock x:Name="Label" Text="Off" VerticalAlignment="Center" Margin="0,0,12,0" MinWidth="24"
+                         Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
+              <Grid Width="40" Height="20">
+                <Border x:Name="Track" CornerRadius="10" BorderThickness="1"
+                        Background="{DynamicResource ControlAltFillColorSecondaryBrush}"
+                        BorderBrush="{DynamicResource ControlStrongStrokeColorDefaultBrush}" />
+                <Ellipse x:Name="Knob" Width="12" Height="12" HorizontalAlignment="Left" Margin="4,0"
+                         Fill="{DynamicResource TextFillColorSecondaryBrush}" />
+              </Grid>
+            </StackPanel>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsChecked" Value="True">
+                <Setter TargetName="Label" Property="Text" Value="On" />
+                <Setter TargetName="Track" Property="Background" Value="{DynamicResource AccentFillColorDefaultBrush}" />
+                <Setter TargetName="Track" Property="BorderBrush" Value="{DynamicResource AccentFillColorDefaultBrush}" />
+                <Setter TargetName="Knob" Property="HorizontalAlignment" Value="Right" />
+                <Setter TargetName="Knob" Property="Fill" Value="{DynamicResource TextOnAccentFillColorPrimaryBrush}" />
+              </Trigger>
+              <Trigger Property="IsEnabled" Value="False">
+                <Setter Property="Opacity" Value="0.45" />
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+  </Window.Resources>
+
+  <StackPanel x:Name="Body" Margin="24,20,24,24">
+    <TextBlock Text="Settings" FontSize="22" FontWeight="SemiBold" Margin="0,0,0,16" />
+
+    <Border Style="{StaticResource Card}">
+      <DockPanel>
+        <CheckBox DockPanel.Dock="Right" Style="{StaticResource Switch}" IsChecked="{Binding StartWithWindows}"
+                  AutomationProperties.Name="Start with Windows" />
+        <StackPanel VerticalAlignment="Center">
+          <TextBlock Text="Start with Windows" />
+          <TextBlock Text="TylerCast waits in the tray when you sign in" Style="{StaticResource Secondary}" />
+        </StackPanel>
+      </DockPanel>
+    </Border>
+
+    <Border Style="{StaticResource Card}">
+      <DockPanel>
+        <CheckBox DockPanel.Dock="Right" Style="{StaticResource Switch}" IsChecked="{Binding TestPattern}"
+                  IsEnabled="{Binding CanChangeTestPattern}" AutomationProperties.Name="Send a test pattern" />
+        <StackPanel VerticalAlignment="Center">
+          <TextBlock Text="Send a test pattern" />
+          <TextBlock Text="Colour bars instead of your screen, for checking the TV. Applies the next time you cast."
+                     Style="{StaticResource Secondary}" />
+        </StackPanel>
+      </DockPanel>
+    </Border>
+
+    <Border Style="{StaticResource Card}">
+      <DockPanel>
+        <Button DockPanel.Dock="Right" Content="Open log" Click="Log_Click" VerticalAlignment="Center" MinWidth="96" />
+        <StackPanel VerticalAlignment="Center">
+          <TextBlock Text="Log" />
+          <TextBlock Text="What TylerCast did, for when something goes wrong" Style="{StaticResource Secondary}" />
+        </StackPanel>
+      </DockPanel>
+    </Border>
+
+    <TextBlock x:Name="Version" Style="{StaticResource Secondary}" Margin="2,12,0,0" />
+  </StackPanel>
+</Window>

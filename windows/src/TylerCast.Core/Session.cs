@@ -67,6 +67,7 @@ public sealed class Pipeline
     public string StreamPath { get; } = StreamServer.RandomPath();
     public StreamServer? Server { get; private set; }
     public Action<string>? OnFailure { get; set; }
+    public IVideoSource Video => _video;
 
     private readonly IVideoSource _video;
     private readonly IAudioSource? _audio;
@@ -198,6 +199,13 @@ public sealed class MirrorSession(MirrorOptions options, Func<MirrorOptions, IVi
     private readonly SemaphoreSlim _gate = new(1, 1);
 
     public State Current => _state;
+
+    /// <summary>Changes the margin now if casting (the picture shrinks live), and for later sessions.</summary>
+    public void SetMargin(double percent)
+    {
+        Options = Options with { MarginPercent = percent };
+        if (_pipeline is { } p) p.Video.MarginPercent = percent;
+    }
     public bool IsActive => _state is State.Connecting or State.Playing;
 
     private void Set(State s)
