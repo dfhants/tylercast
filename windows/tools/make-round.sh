@@ -18,7 +18,7 @@ builds=$(cat "$src/builds" 2>/dev/null || echo cli)
 pub() { # project, exe
   dotnet publish "src/$1" -r win-x64 -c Release --self-contained \
     -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true \
-    -p:DebugType=none -o "$out/bin" $3 >/dev/null
+    -p:DebugType=none -o "$out/bin" ${3:-} >/dev/null
   mv "$out/bin/$2" "$out/$2"
   rm -rf "$out/bin"
 }
