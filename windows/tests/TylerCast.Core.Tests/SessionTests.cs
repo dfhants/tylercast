@@ -48,6 +48,8 @@ internal sealed class FakeTv : IDisposable
     private readonly HttpListener _http = new();
     public List<string> Actions { get; } = [];
     public string State { get; set; } = "PLAYING";
+    /// <summary>SetAVTransportURI answers UPnP 716 this many times first (the TV can't fetch the stream).</summary>
+    public int Refuse716 { get; set; }
     /// <summary>Stops answering altogether (connection refused): as a TV gone to standby or off the network.</summary>
     public void GoSilent() => _http.Stop();
     public Uri ControlUrl { get; }
@@ -73,6 +75,14 @@ internal sealed class FakeTv : IDisposable
             var body = action == "GetTransportInfo"
                 ? $"<s:Envelope><s:Body><u:GetTransportInfoResponse><CurrentTransportState>{State}</CurrentTransportState></u:GetTransportInfoResponse></s:Body></s:Envelope>"
                 : "<s:Envelope><s:Body/></s:Envelope>";
+            if (action == "SetAVTransportURI" && Refuse716 > 0)
+            {
+                Refuse716--;
+                ctx.Response.StatusCode = 500;
+                body = "<s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\"><s:Body><s:Fault><faultcode>s:Client</faultcode>"
+                    + "<faultstring>UPnPError</faultstring><detail><UPnPError xmlns=\"urn:schemas-upnp-org:control-1-0\">"
+                    + "<errorCode>716</errorCode><errorDescription>Resource not found</errorDescription></UPnPError></detail></s:Fault></s:Body></s:Envelope>";
+            }
             var b = Encoding.UTF8.GetBytes(body);
             ctx.Response.ContentType = "text/xml";
             await ctx.Response.OutputStream.WriteAsync(b);
@@ -151,6 +161,28 @@ public class SessionTests
             Assert.Equal("The TV stopped the stream", ((MirrorSession.State.Failed)s.Current).Why);
         }
         finally { MirrorSession.PollInterval = interval; }
+    }
+
+    [Fact]
+    public async Task WaitsForTheTvToReachThisComputer()
+    {
+        using var tv = new FakeTv { Refuse716 = 2 };
+        var s = new MirrorSession(Options with { ReachWait = TimeSpan.FromSeconds(20) }, o => new ClipVideoSource());
+        var seen = new List<MirrorSession.State>();
+        s.StateChanged += seen.Add;
+        await s.StartAsync(Renderer.Manual("127.0.0.1", tv.ControlUrl));
+        Assert.IsType<MirrorSession.State.Playing>(s.Current);
+        Assert.Contains(seen, x => x is MirrorSession.State.Connecting { What: MirrorSession.WaitingForReach });
+        await s.StopAsync();
+    }
+
+    [Fact]
+    public async Task GivesUpAtOnceWithoutReachWait()
+    {
+        using var tv = new FakeTv { Refuse716 = 1 };
+        var s = new MirrorSession(Options, o => new ClipVideoSource());
+        await s.StartAsync(Renderer.Manual("127.0.0.1", tv.ControlUrl));
+        Assert.Equal("The TV can't reach this computer", Assert.IsType<MirrorSession.State.Failed>(s.Current).Why);
     }
 
     [Fact]

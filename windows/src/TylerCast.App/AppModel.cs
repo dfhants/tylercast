@@ -317,6 +317,7 @@ public sealed class AppModel : Observable
             Delay = Platform.DelayFor(audio),
             SoundOnTvOnly = _s.MuteThisPc,
             TestPattern = _s.TestPattern,
+            ReachWait = TimeSpan.FromSeconds(45),
         };
     }
 
@@ -475,15 +476,17 @@ public sealed class AppModel : Observable
             var active = tv.Location == _activeLocation;
             TvStatus status;
             string sub;
+            var waiting = false;
             if (active && state is MirrorSession.State.Playing)
             {
                 status = TvStatus.Casting;
                 sub = (_s.TestPattern ? "Casting the test pattern · " : "Casting · ") + Elapsed;
             }
-            else if (active && state is MirrorSession.State.Connecting)
+            else if (active && state is MirrorSession.State.Connecting c)
             {
                 status = TvStatus.Connecting;
-                sub = "Connecting…";
+                waiting = c.What == MirrorSession.WaitingForReach;
+                sub = waiting ? "Waiting for Windows to let the TV in…" : "Connecting…";
             }
             else if (tv.Location == _errorLocation && state is MirrorSession.State.Failed f)
             {
@@ -496,7 +499,7 @@ public sealed class AppModel : Observable
                 sub = tv.Maker;
             }
             var expanded = active || tv.Location == _expanded;
-            tv.Update(status, sub, expanded, firewallNote: status == TvStatus.Connecting && !_s.FirstCastDone);
+            tv.Update(status, sub, expanded, firewallNote: status == TvStatus.Connecting && (waiting || !_s.FirstCastDone));
         }
         Raise(nameof(IsActive));
         Raise(nameof(CanChangeTestPattern));

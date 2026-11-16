@@ -129,6 +129,7 @@ MirrorOptions Options()
 #if WINDOWS
         // More slack than the Mac: bigger keyframes, and captured sound lags (rounds 1 and 2).
         Delay = Number("--delay", Platform.DelayFor(audio)),
+        ReachWait = TimeSpan.FromSeconds(30), // Windows' firewall question on first use
 #else
         Delay = Number("--delay", o.Delay),
 #endif

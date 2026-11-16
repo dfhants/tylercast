@@ -32,6 +32,12 @@ public sealed record MirrorOptions
     public bool SendProfile { get; init; } = true;
     public bool Tlag { get; init; }
     public bool SendMetadata { get; init; } = true;
+    /// <summary>
+    /// How long to keep asking when the TV says it can't fetch the stream (UPnP 716). Windows
+    /// shows a firewall question the first time a new TylerCast.exe listens, and the TV is
+    /// blocked until it's answered (round 3); on the Mac nothing waits, so the default is none.
+    /// </summary>
+    public TimeSpan ReachWait { get; init; } = TimeSpan.Zero;
 
     /// <summary>What is actually sent: the test pattern captures no sound, so it keeps
     /// the silent AC-3 track rather than an empty AAC one.</summary>
@@ -200,6 +206,9 @@ public sealed class MirrorSession(MirrorOptions options, Func<MirrorOptions, IVi
 
     public State Current => _state;
 
+    /// <summary>The Connecting text while the TV can't reach this computer yet (see <see cref="MirrorOptions.ReachWait"/>).</summary>
+    public const string WaitingForReach = "waiting for the TV to reach this computer";
+
     /// <summary>Changes the margin now if casting (the picture shrinks live), and for later sessions.</summary>
     public void SetMargin(double percent)
     {
@@ -263,7 +272,22 @@ public sealed class MirrorSession(MirrorOptions options, Func<MirrorOptions, IVi
                 Log.Info($"Stop before play failed (nothing playing is fine): {e.Message}");
             }
             var meta = Options.SendMetadata ? Soap.Didl(url, protocolInfo) : "";
-            await t.SetUriAsync(url, meta, ct).ConfigureAwait(false);
+            var giveUp = DateTime.UtcNow + Options.ReachWait;
+            while (true)
+            {
+                try
+                {
+                    await t.SetUriAsync(url, meta, ct).ConfigureAwait(false);
+                    break;
+                }
+                catch (SoapException e) when (e.UpnpCode == "716" && DateTime.UtcNow < giveUp)
+                {
+                    if (_state is not State.Connecting { What: WaitingForReach })
+                        Log.Info("The TV can't fetch the stream yet (a firewall question waiting?): asking again until it can");
+                    Set(new State.Connecting(WaitingForReach));
+                    await Task.Delay(TimeSpan.FromSeconds(2), ct).ConfigureAwait(false);
+                }
+            }
             await t.PlayAsync(ct).ConfigureAwait(false);
             Set(new State.Playing(tv.Name));
             Log.Info($"Playing on {tv.Name}");
