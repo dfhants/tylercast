@@ -368,3 +368,25 @@ public class Ac3Tests
         Assert.Equal([odd], Ac3.Split(odd));
     }
 }
+
+public class AudioFallbackTests
+{
+    private sealed class Exploding : IAudioSource
+    {
+        public string Name => "should not start";
+        public AudioCodec Codec => AudioCodec.Ac3;
+        public void Start(Action<byte[], double> onFrame, Action<string>? onError = null) => throw new InvalidOperationException("started");
+        public void Stop() => throw new InvalidOperationException("stopped");
+        public void Dispose() { }
+    }
+
+    /// <summary>From the CI selftest: after falling back to the silent track, a sound source passed
+    /// along anyway must not be started (it failed the whole pipeline on a PC with no sound device).</summary>
+    [Fact]
+    public async Task SilentTrackLeavesTheSoundSourceAlone()
+    {
+        var p = new Pipeline(new MirrorOptions { Audio = MirrorOptions.AudioKind.SilentAc3 }, new ClipVideoSource(), new Exploding());
+        await p.StartAsync(serve: false);
+        p.Stop();
+    }
+}

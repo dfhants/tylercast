@@ -14,7 +14,7 @@ const string Usage = """
 
       discover [--timeout S] [--st ssdp:all] [--via LOCAL_IP]
       play     [--tv IP|name] [--avt URL] [--seconds N] [stream options]   mirror until Ctrl-C or N seconds (sends Stop)
-      serve    [stream options]                     no TV; open the URL it prints (random path)
+      serve    [--seconds N] [stream options]       no TV; open the URL it prints (random path)
       record   FILE [--seconds N] [stream options]  no TV, no server; check with ffprobe
 
     stream options:
@@ -271,7 +271,8 @@ async Task<int> Serve()
     await p.StartAsync(serve: true);
     Log.Info($"Serving http://{Ssdp.LocalAddressTowards("8.8.8.8") ?? "<this computer>"}:{p.Options.Port}{p.StreamPath} "
         + "to anyone on the network. Ctrl-C to stop.");
-    await ctrlC;
+    if (values.ContainsKey("--seconds")) await Task.WhenAny(ctrlC, Task.Delay(TimeSpan.FromSeconds(Number("--seconds", 0))));
+    else await ctrlC;
     p.Stop();
     return 0;
 }

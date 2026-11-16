@@ -61,15 +61,38 @@ Read-Host 'Press Enter to start the self-test' | Out-Null
 & $exe selftest (Join-Path $Results 'selftest')
 Note 'selftest_exit' $LASTEXITCODE
 
+# ------------------------------------------------------------------ network permission
+# The TV fetches the picture from this laptop, so Windows must allow TylerCast to accept
+# connections. Windows asks the first time it listens: do that now, before the TV checks,
+# so the question isn't still on screen while the TV is trying to connect.
+$profiles = Get-NetConnectionProfile -ErrorAction SilentlyContinue
+foreach ($p in $profiles) { Note "network_profile" "$($p.InterfaceAlias): $($p.NetworkCategory)" }
+if ($profiles | Where-Object { $_.NetworkCategory -eq 'Public' }) {
+    Say @'
+This laptop's Wi-Fi is set to "Public network". On a public network Windows won't let
+the TV connect to TylerCast. To change it (you can change it back later):
+  Settings > Network & internet > Wi-Fi > (your network's properties) > Private network
+'@
+    Read-Host 'Press Enter once it says Private network (or to carry on anyway)' | Out-Null
+    $profiles = Get-NetConnectionProfile -ErrorAction SilentlyContinue
+    foreach ($p in $profiles) { Note "network_profile_after" "$($p.InterfaceAlias): $($p.NetworkCategory)" }
+}
+Say @'
+Next, Windows may ask whether TylerCast can use the network ("Windows Defender
+Firewall has blocked some features of this app"). If it does:
+  tick "Private networks" and click "Allow".
+(If nothing appears within 10 seconds, it's already allowed: just carry on.)
+'@
+Read-Host 'Press Enter to continue' | Out-Null
+& $exe serve --test-pattern --seconds 10 | Out-Null
+Note 'firewall_prime_exit' $LASTEXITCODE
+AskText 'Did Windows ask about the firewall? (y = yes and I clicked Allow, n = nothing appeared, or describe)' 'firewall_prompt' | Out-Null
+
 # ------------------------------------------------------------------ TV checks
 Say @'
 Now the TV. Please:
  * switch the TV on (not standby), on its normal TV or HDMI input, and
  * sit where you can see it and this laptop.
-
-The first time TylerCast streams, Windows may ask whether to allow it on the
-network ("Windows Defender Firewall has blocked some features"). Tick
-"Private networks" and click "Allow". Without that the TV can't fetch the picture.
 '@
 Read-Host 'Press Enter when the TV is on' | Out-Null
 

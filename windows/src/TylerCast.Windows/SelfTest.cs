@@ -215,7 +215,7 @@ public static class SelfTest
         {
             var audio = Platform.Resolve(Platform.DefaultAudio());
             var o = new MirrorOptions { Audio = audio, SoundOnTvOnly = false };
-            var p = new Pipeline(o, new WindowsVideoSource(o), new WindowsAudioSource(o.Codec, muteComputer: false));
+            var p = new Pipeline(o, new WindowsVideoSource(o), o.CapturesSound ? new WindowsAudioSource(o.Codec, muteComputer: false) : null);
             var path = Path.Combine(dir, "pipeline.ts");
             long bytes = 0;
             string? failed = null;
@@ -254,7 +254,8 @@ public static class SelfTest
                 StartPosition = System.Windows.Forms.FormStartPosition.Manual, Location = new System.Drawing.Point(0, 0),
                 Size = new System.Drawing.Size(400, 200), BackColor = System.Drawing.Color.FromArgb(255, 0, 255),
             };
-            form.Shown += (_, _) => shown.Set();
+            // Painted, not just shown: on a slow machine the window can be on screen but still blank.
+            form.Paint += (_, _) => shown.Set();
             var timer = new System.Windows.Forms.Timer { Interval = 50 };
             timer.Tick += (_, _) => { if (close.IsSet) form.Close(); };
             timer.Start();
@@ -262,8 +263,8 @@ public static class SelfTest
         });
         ui.SetApartmentState(ApartmentState.STA);
         ui.Start();
-        shown.Wait(5000);
-        Thread.Sleep(500); // let it paint
+        var painted = shown.Wait(10_000);
+        Thread.Sleep(700); // let the compositor put it on screen
         try
         {
             using var cap = Captures.Open(method);
@@ -276,6 +277,14 @@ public static class SelfTest
             // The window's pixels (scaled by DPI: check well inside it).
             var px = img.Pixels.AsSpan((50 * img.Width + 50) * 4, 4);
             var magenta = px[0] > 200 && px[1] < 60 && px[2] > 200;
+            if (!magenta)
+            {
+                // One more look after a pause: the window may have arrived late.
+                Thread.Sleep(1000);
+                cap.Capture(img, 500);
+                px = img.Pixels.AsSpan((50 * img.Width + 50) * 4, 4);
+                magenta = px[0] > 200 && px[1] < 60 && px[2] > 200;
+            }
             var conv = new FrameConverter(1920, 1080);
             var nv12 = new byte[conv.FrameBytes];
             sw.Restart();
@@ -283,7 +292,7 @@ public static class SelfTest
             var convertMs = sw.Elapsed.TotalMilliseconds / 10;
             var file = $"capture-{method}.bmp";
             Bitmap.SaveHalf(img, Path.Combine(dir, file));
-            r.Result($"capture {method}", magenta, $"{cap.Name}; test window {(magenta ? "seen" : $"NOT seen (pixel B{px[0]} G{px[1]} R{px[2]})")}; "
+            r.Result($"capture {method}", magenta, $"{cap.Name}; test window {(magenta ? "seen" : $"NOT seen (pixel B{px[0]} G{px[1]} R{px[2]}, window {(painted ? "painted" : "never painted")})")}; "
                 + $"{got} new images in 1s ({calls} calls); convert to 1080p NV12 {convertMs:0.0}ms; screenshot {file}");
         }
         finally

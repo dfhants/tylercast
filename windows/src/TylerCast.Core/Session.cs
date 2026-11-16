@@ -135,8 +135,10 @@ public sealed class Pipeline
             Pacer.WithMuxer(m => m.EnqueueVideo(au, Pacer.Pts90ForHost(host), key));
             Interlocked.Exchange(ref _sawFrame, 1);
         }, why => OnFailure?.Invoke(why));
-        _audio?.Start((frame, host) => Pacer.WithMuxer(m => m.EnqueueAudio(frame, Pacer.Pts90ForHost(host))),
-            why => OnFailure?.Invoke($"sound: {why}"));
+        // Only when sound is what the stream carries (a fallback to the silent track leaves it unused).
+        if (Options.CapturesSound)
+            _audio!.Start((frame, host) => Pacer.WithMuxer(m => m.EnqueueAudio(frame, Pacer.Pts90ForHost(host))),
+                why => OnFailure?.Invoke($"sound: {why}"));
         for (var i = 0; i < 40 && Volatile.Read(ref _sawFrame) == 0; i++) await Task.Delay(100, ct).ConfigureAwait(false);
         if (Volatile.Read(ref _sawFrame) == 0)
         {
@@ -148,7 +150,7 @@ public sealed class Pipeline
 
     public void Stop()
     {
-        _audio?.Stop();
+        if (Options.CapturesSound) _audio?.Stop();
         _video.Stop();
         Pacer.Stop();
         Server?.Stop();
