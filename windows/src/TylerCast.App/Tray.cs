@@ -297,64 +297,87 @@ internal sealed class TrayHost
 
 internal enum TrayGlyph { Idle, Connecting, Casting, Error }
 
-/// <summary>The tray glyph, drawn as Sources/TylerCast/Icon.swift draws the Mac's (18-unit grid, y down here).</summary>
+/// <summary>
+/// The tray glyph: the Mac menu bar's screen-on-a-stand with a T (Sources/TylerCast/Icon.swift),
+/// redrawn for each icon size with its straight edges on whole pixels, so the T stays solid and
+/// sharp at 16-32 px (drawing the Mac's shapes scaled gave a notched, jagged T: round 5).
+/// Rasterised here with 4×4 supersampling, so only the rounded corners are soft.
+/// </summary>
 internal static class TrayGlyphs
 {
+    private const int SS = 4;
+
+    private delegate bool Shape(double x, double y);
+
     public static Drawing.Bitmap Draw(TrayGlyph g, Drawing.Color colour, int size)
     {
-        var bmp = new Drawing.Bitmap(size, size, Drawing.Imaging.PixelFormat.Format32bppPArgb);
-        using var gr = Drawing.Graphics.FromImage(bmp);
-        gr.SmoothingMode = Drawing.Drawing2D.SmoothingMode.AntiAlias;
-        gr.PixelOffsetMode = Drawing.Drawing2D.PixelOffsetMode.HighQuality;
-        var k = size / 18f;
-        gr.ScaleTransform(k, k);
-        var c = g == TrayGlyph.Connecting ? Drawing.Color.FromArgb(128, colour) : colour;
-        using var brush = new Drawing.SolidBrush(c);
-        // Stand: neck and foot.
-        gr.FillRectangle(brush, 8.25f, 13.0f, 1.5f, 2.4f);
-        using (var foot = Rounded(5.5f, 15.0f, 7f, 1.4f, 0.7f)) gr.FillPath(brush, foot);
-        using var screen = Rounded(1.25f, 2.25f, 15.5f, 11f, 2.2f);
-        using var mark = g == TrayGlyph.Error ? Bang() : LetterT();
-        if (g == TrayGlyph.Casting)
+        var k = size / 18.0;
+        int P(double v) => (int)Math.Round(v * k, MidpointRounding.AwayFromZero);
+        // A width that centres exactly in the icon (same parity as the size).
+        int Even(int w) { w = Math.Max(1, w); return (size - w) % 2 != 0 ? w + 1 : w; }
+        int R(double v) => (int)Math.Round(v, MidpointRounding.AwayFromZero);
+
+        var t = Math.Max(1, R(1.5 * k));
+        int ox0 = P(0.5), oy0 = P(1.5), ox1 = size - P(0.5), oy1 = P(14.0);
+        var rad = 2.6 * k;
+        var outer = Box(ox0, oy0, ox1, oy1, rad);
+        var inner = Box(ox0 + t, oy0 + t, ox1 - t, oy1 - t, Math.Max(0, rad - t));
+        var wn = Even(R(1.5 * k));
+        var neck = Box((size - wn) / 2, oy1, (size + wn) / 2, P(15.2), 0);
+        var wf = Even(R(7 * k));
+        int fy0 = P(15.2), fy1 = Math.Max(fy0 + 1, P(16.6));
+        var foot = Box((size - wf) / 2, fy0, (size + wf) / 2, fy1, (fy1 - fy0) / 2.0);
+
+        // The mark sits inside the screen with at least a pixel clear all round.
+        var gap = Math.Max(1, R(1.2 * k));
+        int top = oy0 + t + gap, bottom = oy1 - t - gap;
+        Shape mark;
+        if (g == TrayGlyph.Error)
         {
-            // Filled screen with the T cut out of it.
-            using var region = new Drawing.Region(screen);
-            region.Exclude(mark);
-            gr.FillRegion(brush, region);
+            var ws = Even(Math.Max(2, R(1.8 * k)));
+            var dot0 = bottom - ws;
+            var bar = Box((size - ws) / 2, top, (size + ws) / 2, dot0 - Math.Max(1, R(k)), ws / 4.0);
+            var dot = Box((size - ws) / 2, dot0, (size + ws) / 2, bottom, ws / 2.0);
+            mark = (x, y) => bar(x, y) || dot(x, y);
         }
         else
         {
-            using var pen = new Drawing.Pen(c, 1.5f);
-            gr.DrawPath(pen, screen);
-            gr.FillPath(brush, mark);
+            var ws = Even(Math.Max(2, R(2.2 * k)));
+            var wb = Even(R(8 * k));
+            var bh = Math.Max(2, R(2.1 * k));
+            var bar = Box((size - wb) / 2, top, (size + wb) / 2, top + bh, 0);
+            var stem = Box((size - ws) / 2, top, (size + ws) / 2, bottom, 0);
+            mark = (x, y) => bar(x, y) || stem(x, y);
+        }
+
+        var bmp = new Drawing.Bitmap(size, size, Drawing.Imaging.PixelFormat.Format32bppArgb);
+        var scale = g == TrayGlyph.Connecting ? 0.5 : 1.0;
+        for (var py = 0; py < size; py++)
+        for (var px = 0; px < size; px++)
+        {
+            var hits = 0;
+            for (var sy = 0; sy < SS; sy++)
+            for (var sx = 0; sx < SS; sx++)
+            {
+                double x = px + (sx + 0.5) / SS, y = py + (sy + 0.5) / SS;
+                var stand = neck(x, y) || foot(x, y);
+                var on = g == TrayGlyph.Casting
+                    ? (outer(x, y) && !mark(x, y)) || stand
+                    : (outer(x, y) && !inner(x, y)) || stand || mark(x, y);
+                if (on) hits++;
+            }
+            var a = (int)(hits * 255 / (SS * SS) * scale);
+            bmp.SetPixel(px, py, Drawing.Color.FromArgb(a, colour));
         }
         return bmp;
     }
 
-    private static Drawing.Drawing2D.GraphicsPath LetterT()
+    /// <summary>A box from (x0,y0) to (x1,y1) in pixels, corners rounded to radius r.</summary>
+    private static Shape Box(double x0, double y0, double x1, double y1, double r) => (x, y) =>
     {
-        var p = Rounded(5.0f, 4.5f, 8f, 1.9f, 0.5f);
-        using var stem = Rounded(8.05f, 5.5f, 1.9f, 5.6f, 0.5f);
-        p.AddPath(stem, false);
-        return p;
-    }
-
-    private static Drawing.Drawing2D.GraphicsPath Bang()
-    {
-        var p = Rounded(8.1f, 4.0f, 1.8f, 4.6f, 0.6f);
-        p.AddEllipse(8.05f, 9.4f, 1.9f, 1.9f);
-        return p;
-    }
-
-    private static Drawing.Drawing2D.GraphicsPath Rounded(float x, float y, float w, float h, float r)
-    {
-        var p = new Drawing.Drawing2D.GraphicsPath();
-        var d = 2 * r;
-        p.AddArc(x, y, d, d, 180, 90);
-        p.AddArc(x + w - d, y, d, d, 270, 90);
-        p.AddArc(x + w - d, y + h - d, d, d, 0, 90);
-        p.AddArc(x, y + h - d, d, d, 90, 90);
-        p.CloseFigure();
-        return p;
-    }
+        if (x < x0 || x >= x1 || y < y0 || y >= y1) return false;
+        var cx = Math.Clamp(x, x0 + r, x1 - r);
+        var cy = Math.Clamp(y, y0 + r, y1 - r);
+        return (x - cx) * (x - cx) + (y - cy) * (y - cy) <= r * r;
+    };
 }
