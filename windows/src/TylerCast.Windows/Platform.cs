@@ -36,4 +36,30 @@ public static class Platform
     /// <summary>The audio kind to use when none was asked for: AC-3 (what the TV lists) if Windows can encode it, else AAC.</summary>
     public static MirrorOptions.AudioKind DefaultAudio() =>
         MfAudioEncoder.Available(AudioCodec.Ac3).Count > 0 ? MirrorOptions.AudioKind.Ac3 : MirrorOptions.AudioKind.Aac;
+
+    /// <summary>
+    /// What can actually be sent: the computer's sound needs an output device to listen to
+    /// (none when the audio driver is missing or the only device is unplugged) and an encoder
+    /// for the codec. Otherwise the TV gets the silent AC-3 track, so the picture still works.
+    /// </summary>
+    public static MirrorOptions.AudioKind Resolve(MirrorOptions.AudioKind wanted)
+    {
+        if (wanted is not (MirrorOptions.AudioKind.Ac3 or MirrorOptions.AudioKind.Aac)) return wanted;
+        try { using var l = new Loopback(); }
+        catch (Exception e)
+        {
+            Log.Warn($"No sound to capture ({Captures.Describe(e)}): sending a silent track instead");
+            return MirrorOptions.AudioKind.SilentAc3;
+        }
+        var codec = wanted == MirrorOptions.AudioKind.Aac ? AudioCodec.Aac : AudioCodec.Ac3;
+        if (MfAudioEncoder.Available(codec).Count > 0) return wanted;
+        var other = codec == AudioCodec.Aac ? MirrorOptions.AudioKind.Ac3 : MirrorOptions.AudioKind.Aac;
+        if (MfAudioEncoder.Available(codec == AudioCodec.Aac ? AudioCodec.Ac3 : AudioCodec.Aac).Count > 0)
+        {
+            Log.Warn($"No {codec} encoder on this PC: using {MirrorOptions.Name(other)} instead");
+            return other;
+        }
+        Log.Warn("No audio encoder on this PC (Windows N edition?): sending a silent track instead");
+        return MirrorOptions.AudioKind.SilentAc3;
+    }
 }

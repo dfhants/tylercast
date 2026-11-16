@@ -13,7 +13,7 @@ const string Usage = """
     tylercast: mirror this computer's screen to a DLNA TV.
 
       discover [--timeout S] [--st ssdp:all] [--via LOCAL_IP]
-      play     [--tv IP|name] [--avt URL] [stream options]   mirror to a TV until Ctrl-C (sends Stop on exit)
+      play     [--tv IP|name] [--avt URL] [--seconds N] [stream options]   mirror until Ctrl-C or N seconds (sends Stop)
       serve    [stream options]                     no TV; open the URL it prints (random path)
       record   FILE [--seconds N] [stream options]  no TV, no server; check with ffprobe
 
@@ -117,6 +117,9 @@ MirrorOptions Options()
     if (values.TryGetValue("--audio", out var k))
         audio = MirrorOptions.ParseAudio(k) ?? throw new FormatException("--audio must be one of ac3, aac, silent-ac3, none");
     if (flags.Contains("--no-audio")) audio = MirrorOptions.AudioKind.None;
+#if WINDOWS
+    if (!flags.Contains("--test-pattern")) audio = Platform.Resolve(audio);
+#endif
     o = o with
     {
         MarginPercent = Number("--margin", 0),
@@ -248,8 +251,11 @@ async Task<int> Play()
     var ctrlC = CtrlC();
     await session.StartAsync(tv);
     if (!session.IsActive) return 1;
-    Log.Info("Playing. Ctrl-C to stop.");
-    if (await Task.WhenAny(ctrlC, ended.Task) == ctrlC)
+    // --seconds N: stop by itself after N seconds (the test-round script uses it).
+    var limit = values.ContainsKey("--seconds") ? Task.Delay(TimeSpan.FromSeconds(Number("--seconds", 0))) : Task.Delay(Timeout.Infinite);
+    Log.Info(values.ContainsKey("--seconds") ? $"Playing for {Number("--seconds", 0)}s." : "Playing. Ctrl-C to stop.");
+    var first = await Task.WhenAny(ctrlC, ended.Task, limit);
+    if (first != ended.Task)
     {
         await session.StopAsync();
         return 0;

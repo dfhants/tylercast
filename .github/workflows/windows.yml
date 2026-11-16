@@ -55,12 +55,11 @@ jobs:
         run: |
           out\win-x64\tylercast.exe diag
           out\win-x64\tylercast.exe selftest ci-selftest --no-tone
+          Copy-Item "$env:LOCALAPPDATA\TylerCast\TylerCast.log" ci-selftest -ErrorAction SilentlyContinue
       - name: Upload selftest
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: selftest
-          path: |
-            windows/ci-selftest
-            ~/AppData/Local/TylerCast/TylerCast.log
+          path: windows/ci-selftest
           retention-days: 7

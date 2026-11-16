@@ -213,7 +213,7 @@ public static class SelfTest
         r.Section("Full pipeline: 10s of screen and sound to a file");
         r.Try("pipeline", () =>
         {
-            var audio = Platform.DefaultAudio();
+            var audio = Platform.Resolve(Platform.DefaultAudio());
             var o = new MirrorOptions { Audio = audio, SoundOnTvOnly = false };
             var p = new Pipeline(o, new WindowsVideoSource(o), new WindowsAudioSource(o.Codec, muteComputer: false));
             var path = Path.Combine(dir, "pipeline.ts");

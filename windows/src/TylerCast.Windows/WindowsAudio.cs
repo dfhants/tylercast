@@ -228,8 +228,61 @@ public sealed unsafe class MfAudioEncoder : IDisposable
         }
         finally { foreach (var (_, a) in all) Marshal.ReleaseComObject(a); }
 
-        // Output: the offered type closest to the bit rate we want, at 48 kHz stereo.
+        // Encoders disagree on the order: some want the output type first, others the input
+        // type first (and only list output types once it is set). Try one order, then the other.
         var wantBytes = codec == AudioCodec.Aac ? 20_000u : 24_000u; // 160 / 192 kbit/s
+        Exception? first = null;
+        foreach (var outputFirst in new[] { true, false })
+        {
+            try
+            {
+                if (outputFirst)
+                {
+                    Bitrate = SetOutput(codec, wantBytes);
+                    _t.SetInputType(0, PcmInput(), 0);
+                }
+                else
+                {
+                    _t.SetInputType(0, PcmInput(), 0);
+                    Bitrate = SetOutput(codec, wantBytes);
+                }
+                first = null;
+                break;
+            }
+            catch (COMException e)
+            {
+                Log.Info($"{Name}: setting types {(outputFirst ? "output first" : "input first")} failed: {Captures.Describe(e)}");
+                first ??= e;
+            }
+        }
+        if (first is not null) throw first;
+
+        MFT_OUTPUT_STREAM_INFO si;
+        _t.GetOutputStreamInfo(0, &si);
+        _providesSamples = (si.dwFlags & 0x100) != 0;
+        _outputSize = Math.Max(si.cbSize, 8192u);
+        _t.ProcessMessage(MFT_MESSAGE_TYPE.MFT_MESSAGE_NOTIFY_BEGIN_STREAMING, 0);
+        _t.ProcessMessage(MFT_MESSAGE_TYPE.MFT_MESSAGE_NOTIFY_START_OF_STREAM, 0);
+        Log.Info($"Audio encoder: {Name}, {codec} {Bitrate / 1000} kbit/s");
+    }
+
+    private static IMFMediaType PcmInput()
+    {
+        PInvoke.MFCreateMediaType(out var input).ThrowOnFailure();
+        Mf.Set(input, PInvoke.MF_MT_MAJOR_TYPE, PInvoke.MFMediaType_Audio);
+        Mf.Set(input, PInvoke.MF_MT_SUBTYPE, PInvoke.MFAudioFormat_PCM);
+        Mf.Set(input, PInvoke.MF_MT_AUDIO_SAMPLES_PER_SECOND, 48_000u);
+        Mf.Set(input, PInvoke.MF_MT_AUDIO_NUM_CHANNELS, 2u);
+        Mf.Set(input, PInvoke.MF_MT_AUDIO_BITS_PER_SAMPLE, 16u);
+        Mf.Set(input, PInvoke.MF_MT_AUDIO_BLOCK_ALIGNMENT, 4u);
+        Mf.Set(input, PInvoke.MF_MT_AUDIO_AVG_BYTES_PER_SECOND, 192_000u);
+        return input;
+    }
+
+    /// <summary>Sets the offered output type closest to <paramref name="wantBytes"/>/s at 48 kHz stereo
+    /// (or a built one if none is offered). Returns its bit rate.</summary>
+    private int SetOutput(AudioCodec codec, uint wantBytes)
+    {
         var sub = codec == AudioCodec.Aac ? PInvoke.MFAudioFormat_AAC : PInvoke.MFAudioFormat_Dolby_AC3;
         IMFMediaType? best = null;
         var bestDiff = long.MaxValue;
@@ -251,7 +304,6 @@ public sealed unsafe class MfAudioEncoder : IDisposable
         }
         if (best is null)
         {
-            // None listed (some encoders want the input type first): build one.
             PInvoke.MFCreateMediaType(out best).ThrowOnFailure();
             Mf.Set(best, PInvoke.MF_MT_MAJOR_TYPE, PInvoke.MFMediaType_Audio);
             Mf.Set(best, PInvoke.MF_MT_SUBTYPE, sub);
@@ -261,26 +313,8 @@ public sealed unsafe class MfAudioEncoder : IDisposable
             Mf.Set(best, PInvoke.MF_MT_AUDIO_AVG_BYTES_PER_SECOND, wantBytes);
             if (codec == AudioCodec.Aac) Mf.Set(best, PInvoke.MF_MT_AAC_PAYLOAD_TYPE, 0u);
         }
-        Bitrate = (int)(Mf.GetUInt32(best, PInvoke.MF_MT_AUDIO_AVG_BYTES_PER_SECOND) ?? wantBytes) * 8;
         _t.SetOutputType(0, best, 0);
-
-        PInvoke.MFCreateMediaType(out var input).ThrowOnFailure();
-        Mf.Set(input, PInvoke.MF_MT_MAJOR_TYPE, PInvoke.MFMediaType_Audio);
-        Mf.Set(input, PInvoke.MF_MT_SUBTYPE, PInvoke.MFAudioFormat_PCM);
-        Mf.Set(input, PInvoke.MF_MT_AUDIO_SAMPLES_PER_SECOND, 48_000u);
-        Mf.Set(input, PInvoke.MF_MT_AUDIO_NUM_CHANNELS, 2u);
-        Mf.Set(input, PInvoke.MF_MT_AUDIO_BITS_PER_SAMPLE, 16u);
-        Mf.Set(input, PInvoke.MF_MT_AUDIO_BLOCK_ALIGNMENT, 4u);
-        Mf.Set(input, PInvoke.MF_MT_AUDIO_AVG_BYTES_PER_SECOND, 192_000u);
-        _t.SetInputType(0, input, 0);
-
-        MFT_OUTPUT_STREAM_INFO si;
-        _t.GetOutputStreamInfo(0, &si);
-        _providesSamples = (si.dwFlags & 0x100) != 0;
-        _outputSize = Math.Max(si.cbSize, 8192u);
-        _t.ProcessMessage(MFT_MESSAGE_TYPE.MFT_MESSAGE_NOTIFY_BEGIN_STREAMING, 0);
-        _t.ProcessMessage(MFT_MESSAGE_TYPE.MFT_MESSAGE_NOTIFY_START_OF_STREAM, 0);
-        Log.Info($"Audio encoder: {Name}, {codec} {Bitrate / 1000} kbit/s");
+        return (int)(Mf.GetUInt32(best, PInvoke.MF_MT_AUDIO_AVG_BYTES_PER_SECOND) ?? wantBytes) * 8;
     }
 
     /// <summary>Encodes 16-bit stereo 48 kHz PCM whose first sample is at <paramref name="time"/> (100ns).</summary>
