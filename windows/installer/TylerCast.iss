@@ -7,7 +7,10 @@
 ; sign-in (the same Run value the app's own "Start with Windows" switch sets).
 
 #define AppExe "..\out\app\TylerCast.exe"
-#define AppVersion GetVersionNumbersString(AppExe)
+; The release workflow passes /DAppVersion=0.2.0 (from the tag); otherwise the exe's own version.
+#ifndef AppVersion
+  #define AppVersion GetVersionNumbersString(AppExe)
+#endif
 
 [Setup]
 AppId={{21E9C01C-404B-4506-98D1-0FE5D04E23DD}

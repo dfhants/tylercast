@@ -1,0 +1,101 @@
+# Publishes a release when a version tag is pushed (git tag v0.2.0 && git push origin v0.2.0):
+# the Windows installer (built, tested, installed and uninstalled on Windows) and the Mac app,
+# with SHA-256 hashes. A tag with a hyphen (v0.3.0-beta1) makes a pre-release.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: windows
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: 1
+      DOTNET_NOLOGO: 1
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          dotnet-version: 10.0.x
+      - name: Version from the tag
+        shell: pwsh
+        run: |
+          $v = '${{ github.ref_name }}'.TrimStart('v').Split('-')[0]
+          "VERSION=$v" >> $env:GITHUB_ENV
+      - name: Test
+        run: dotnet test -c Release
+      - name: Publish TylerCast.exe
+        run: dotnet publish src/TylerCast.App -r win-x64 -c Release --self-contained -p:Version=${{ env.VERSION }} -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=none -o out/app
+      - name: Build the installer
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup --version=6.4.3 -y --no-progress | Out-Host }
+          & $iscc /Qp "/DAppVersion=$env:VERSION" installer\TylerCast.iss
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Install, run and uninstall
+        shell: pwsh
+        run: ./tools/test-installer.ps1 -Setup (Get-ChildItem out\installer\*.exe | Select-Object -First 1).FullName
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: windows
+          path: windows/out/installer/*.exe
+
+  mac:
+    runs-on: macos-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - name: Build TylerCast.app
+        run: |
+          v=${GITHUB_REF_NAME#v}; v=${v%%-*}
+          echo "VERSION=$v" >> "$GITHUB_ENV"
+          VERSION=$v ./make-app.sh
+          ditto -c -k --keepParent build/TylerCast.app "TylerCast-mac-$v.zip"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: mac
+          path: TylerCast-mac-*.zip
+
+  release:
+    needs: [windows, mac]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          cd dist
+          sha256sum * > SHA256SUMS.txt
+          {
+            echo "## Download"
+            echo
+            echo "- **Windows 10 (2004+) / 11:** \`$(ls TylerCast-Setup-*.exe)\`. Not code-signed yet: if Windows says *Windows protected your PC*, click **More info**, then **Run anyway**."
+            echo "- **macOS 14+:** \`$(ls TylerCast-mac-*.zip)\`. Not signed by Apple yet: right-click TylerCast.app, choose **Open**, then **Open** (or **System Settings > Privacy & Security > Open Anyway**)."
+            echo
+            echo "See the [README](https://github.com/${{ github.repository }}#download) for setup."
+            echo
+            echo "## SHA-256"
+            echo
+            echo '```'
+            cat SHA256SUMS.txt
+            echo '```'
+          } > notes.md
+          pre=""; case "$TAG" in *-*) pre="--prerelease";; esac
+          gh release create "$TAG" TylerCast-Setup-*.exe TylerCast-mac-*.zip SHA256SUMS.txt \
+            --repo "${{ github.repository }}" --title "TylerCast ${TAG#v}" --notes-file notes.md $pre

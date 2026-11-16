@@ -9,6 +9,8 @@
 # signs it ad hoc.
 set -eu
 cd "$(dirname "$0")"
+# The release workflow sets VERSION from the tag (v0.2.0 -> 0.2.0).
+VERSION=${VERSION:-0.1}
 swift build -c release
 APP=build/TylerCast.app
 rm -rf "$APP"
@@ -24,7 +26,7 @@ mkdir -p "$APP/Contents/Resources"
 ICONSET=$(mktemp -d)/AppIcon.iconset
 .build/release/TylerCast make-icon "$ICONSET"
 iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
-cat > "$APP/Contents/Info.plist" <<'PLIST'
+cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -35,7 +37,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <key>CFBundleExecutable</key><string>TylerCast</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
-  <key>CFBundleShortVersionString</key><string>0.1</string>
+  <key>CFBundleShortVersionString</key><string>$VERSION</string>
   <key>CFBundleVersion</key><string>1</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>LSUIElement</key><true/>

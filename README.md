@@ -1,7 +1,40 @@
 # TylerCast
 
-A macOS menu bar app that mirrors the Mac's main display, with its sound, to a
-DLNA TV (built for and tried on one older smart TV). It began as Phase 2
+Mirror your Mac's or Windows PC's screen, with its sound, to a TV on your home
+network, from the menu bar (Mac) or the system tray (Windows). It works with TVs
+that play video over DLNA (most smart TVs from the last 15 years), with no box,
+dongle or account. Built for and tried on one older smart TV.
+
+## Download
+
+Get the latest version from the [Releases page](../../releases/latest).
+
+**Windows 10 (2004 or later) or 11:** download `TylerCast-Setup-<version>.exe` and run it.
+No administrator password is needed.
+
+- The installer isn't code-signed yet, so Windows shows **"Windows protected your PC"**.
+  Click **More info**, then **Run anyway**.
+- The first time you cast, Windows asks whether TylerCast may use the network:
+  tick **Private networks** and click **Allow**. If your Wi-Fi is set to *Public network*,
+  TylerCast says so and links to the setting: TVs can't connect over a public network.
+- TylerCast lives in the system tray (under **^** next to the clock). Click it, click your
+  TV, then **Cast**. **Fit to TV** shrinks the picture if the TV cuts off its edges.
+- To remove it: **Settings > Apps > Installed apps > TylerCast > Uninstall**.
+
+**macOS 14 or later:** download `TylerCast-mac-<version>.zip`, unzip it, and move
+**TylerCast.app** to Applications.
+
+- It isn't signed by Apple yet, so the first time, **right-click TylerCast.app and choose
+  Open**, then **Open** again. (On macOS 15 or later, if there's no Open button: try to open
+  it once, then go to **System Settings > Privacy & Security** and click **Open Anyway**.)
+- Allow **Screen Recording** and **Local Network** when asked (see [Permissions](#permissions)).
+
+Each release lists the SHA-256 of its files, to check a download against.
+
+## How it works (Mac)
+
+The macOS app mirrors the Mac's main display, with its sound, to a
+DLNA TV. It began as Phase 2
 of a Python script, `mirror.py` (ffmpeg + BlackHole), called "Phase 1" below,
 and needs neither ffmpeg nor BlackHole. It uses Apple frameworks only and has no
 third-party dependencies.
@@ -255,3 +288,13 @@ The test pattern and the screen both play on the test TV, with the profile
 and headers above. The TV accepted the stream on the first try, smooth with
 no late frames. The menu bar app's own buttons haven't been clicked through
 yet: the TV runs above were made with `TylerCast play`.
+
+## Windows
+
+The Windows version is a .NET port under [`windows/`](windows/): the same engine, with Desktop
+Duplication capture, Media Foundation encoding and WASAPI loopback sound, and a WPF tray app.
+[`windows/PORTING.md`](windows/PORTING.md) tracks what has been carried over from the Swift app.
+
+## Licence
+
+MIT: see [LICENSE](LICENSE).

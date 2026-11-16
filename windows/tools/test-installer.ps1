@@ -1,6 +1,6 @@
 # Installs TylerCast silently (with "start when I sign in"), checks what landed, uninstalls,
 # and checks it all went. CI runs it on the installer it has just built. Exits 1 on any miss.
-param([Parameter(Mandatory)] [string] $Setup)
+param([Parameter(Mandatory)] [string] $Setup, [string] $Version = $env:VERSION)
 $ErrorActionPreference = 'Stop'
 $fails = 0
 function Check($ok, $what) {
@@ -20,7 +20,8 @@ $value = (Get-ItemProperty -Path $run -Name TylerCast -ErrorAction SilentlyConti
 Check ($value -eq "`"$exe`" --background") "start at sign-in: $value"
 $entry = Get-ItemProperty $uninstallKeys -ErrorAction SilentlyContinue | Where-Object DisplayName -eq 'TylerCast'
 Check ($null -ne $entry) "Settings > Apps entry: $($entry.DisplayName) $($entry.DisplayVersion)"
-Check ((Get-Item $exe).VersionInfo.ProductVersion -like '0.2.0*') "version $((Get-Item $exe).VersionInfo.ProductVersion)"
+$pv = (Get-Item $exe).VersionInfo.ProductVersion
+Check ($pv -and (-not $Version -or $pv -like "$Version*")) "version $pv"
 
 # The installed app starts and stays up (it opens its flyout; the runner has a desktop).
 $app = Start-Process $exe -PassThru
