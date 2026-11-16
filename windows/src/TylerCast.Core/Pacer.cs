@@ -84,6 +84,8 @@ public sealed class Pacer(TsMuxer muxer, Broadcaster broadcaster, double delay)
     private double _startHost;
     private double _lastStats;
     public ulong BytesSent { get; private set; }
+    /// <summary>The last 10-second statistics logged (null before the first).</summary>
+    public TsMuxer.Stats? LastStats { get; private set; }
 
     /// <summary>Monotonic seconds (QueryPerformanceCounter on Windows, mach time on the Mac).</summary>
     public static double HostSeconds() => Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency;
@@ -150,7 +152,11 @@ public sealed class Pacer(TsMuxer muxer, Broadcaster broadcaster, double delay)
                 BytesSent += (ulong)data.Length;
                 Broadcaster.Send(data, keyOffset);
             }
-            if (stats is { } s) LogStats(s);
+            if (stats is { } s)
+            {
+                LastStats = s;
+                LogStats(s);
+            }
             Thread.Sleep(4);
         }
     }

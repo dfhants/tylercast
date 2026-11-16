@@ -42,6 +42,7 @@ public static class EncoderPicker
             var done = new ManualResetEventSlim();
             using var enc = new MfH264Encoder(info, activate, v);
             if (enc.SequenceHeader is { } sh) fixer.Learn(sh);
+            enc.SequenceHeaderChanged += h => fixer.Learn(h);
             enc.Output += (au, time, _) =>
             {
                 var (fixedAu, key) = fixer.Fix(au);
@@ -53,7 +54,12 @@ public static class EncoderPicker
             };
             enc.Failed += why => { failure = why; done.Set(); };
             var sw = Stopwatch.StartNew();
-            for (var i = 0; i < frames; i++) enc.Encode(tp.Frame(i), i, forceKeyframe: false);
+            for (var i = 0; i < frames; i++)
+            {
+                enc.Encode(tp.Frame(i), i, forceKeyframe: false);
+                // Hardware (async) encoders take input when they ask for it: don't flood them.
+                if (info.Async) Thread.Sleep(10);
+            }
             var fed = sw.Elapsed.TotalMilliseconds;
             done.Wait(TimeSpan.FromSeconds(5));
             var ms = fed / frames;
@@ -109,7 +115,6 @@ public sealed class WindowsVideoSource(MirrorOptions options, string? captureMet
     private FrameConverter? _converter;
     private bool _dirty = true;
     private double _lastMargin = double.NaN;
-    private long _framesEncoded;
     private double _convertMs;
 
     public void Start(Action<byte[], double, bool> onAccessUnit, Action<string>? onError = null)
@@ -125,6 +130,7 @@ public sealed class WindowsVideoSource(MirrorOptions options, string? captureMet
         try { _encoder = new MfH264Encoder(info, all.First(e => e.Info.Index == info.Index).Activate, v); }
         finally { foreach (var (_, a) in all) Marshal.ReleaseComObject(a); }
         if (_encoder.SequenceHeader is { } sh) _fixer.Learn(sh);
+        _encoder.SequenceHeaderChanged += h => _fixer.Learn(h);
         Name = $"screen ({_capture.Name}) → {info.Name}";
 
         var fps = v.Fps;
@@ -135,6 +141,57 @@ public sealed class WindowsVideoSource(MirrorOptions options, string? captureMet
             onAccessUnit(fixedAu, _clock!.StartHost + time / 1e7, key);
         };
         _encoder.Failed += why => onError?.Invoke(why);
+
+        // Two threads, so neither waits for the other: the frame clock captures and converts
+        // (25 times a second), the encoder thread encodes the newest converted frame. If the
+        // encoder falls behind, older frames are skipped rather than queued (no added delay).
+        var handoff = new byte[_nv12.Length];
+        var encoding = new byte[_nv12.Length];
+        var gate = new Lock();
+        var ready = new AutoResetEvent(false);
+        long pendingIndex = -1;
+        var pendingForce = false;
+        _encodeThread = new Thread(() =>
+        {
+            var encodeMs = 0.0;
+            long encoded = 0, skipped = 0, lastIndex = -1;
+            while (!_stopping)
+            {
+                if (!ready.WaitOne(200)) continue;
+                long index;
+                bool force;
+                lock (gate)
+                {
+                    if (pendingIndex < 0) continue;
+                    (handoff, encoding) = (encoding, handoff);
+                    index = pendingIndex;
+                    force = pendingForce;
+                    pendingIndex = -1;
+                    pendingForce = false;
+                }
+                if (lastIndex >= 0 && index > lastIndex + 1) skipped += index - lastIndex - 1;
+                lastIndex = index;
+                try
+                {
+                    var sw = Stopwatch.StartNew();
+                    _encoder.Encode(encoding, index, force);
+                    encodeMs = encodeMs * 0.95 + sw.Elapsed.TotalMilliseconds * 0.05;
+                }
+                catch (Exception e)
+                {
+                    Log.Error($"Encoding failed: {Captures.Describe(e)}");
+                    onError?.Invoke($"encoding failed: {e.Message}");
+                    return;
+                }
+                if (++encoded % (fps * 10) == 0)
+                {
+                    Log.Info($"Video 10s: capture+convert {_convertMs:0.0}ms, encode {encodeMs:0.0}ms per frame "
+                        + $"({1000.0 / fps:0}ms budget each); {skipped} frames skipped");
+                    skipped = 0;
+                }
+            }
+        }) { Name = "encoder", IsBackground = true, Priority = ThreadPriority.AboveNormal };
+        _encodeThread.Start();
 
         _clock = new FrameClock(fps, (index, host, force) =>
         {
@@ -148,10 +205,14 @@ public sealed class WindowsVideoSource(MirrorOptions options, string? captureMet
                     _lastMargin = MarginPercent;
                     _dirty = false;
                 }
+                lock (gate)
+                {
+                    Buffer.BlockCopy(_nv12, 0, handoff, 0, _nv12.Length);
+                    pendingIndex = index;
+                    pendingForce |= force;
+                }
+                ready.Set();
                 _convertMs = _convertMs * 0.95 + sw.Elapsed.TotalMilliseconds * 0.05;
-                _encoder.Encode(_nv12, index, force);
-                if (++_framesEncoded % (fps * 10) == 0)
-                    Log.Info($"Video 10s: capture+convert {_convertMs:0.0}ms/frame average ({1000.0 / fps:0}ms budget)");
             }
             catch (Exception e)
             {
@@ -163,12 +224,17 @@ public sealed class WindowsVideoSource(MirrorOptions options, string? captureMet
         _clock.Start();
     }
 
+    private Thread? _encodeThread;
+    private volatile bool _stopping;
+
     public void RequestKeyframe() => _clock?.RequestKeyframe();
 
     public void Stop()
     {
+        _stopping = true;
         _clock?.Stop();
-        Thread.Sleep(60); // let a frame in progress finish
+        _encodeThread?.Join(1000);
+        Thread.Sleep(60); // let a capture in progress finish
         _encoder?.Dispose();
         _encoder = null;
         _capture?.Dispose();

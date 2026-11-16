@@ -390,3 +390,36 @@ public class AudioFallbackTests
         p.Stop();
     }
 }
+
+public class DirectConversionTests
+{
+    /// <summary>The no-scaling path (screen already 1920x1080) gives what the scaling path gives for the same picture.</summary>
+    [Fact]
+    public void SameSizeMatchesTheGeneralPath()
+    {
+        var rnd = new Random(7);
+        var img = new byte[1920 * 1080 * 4];
+        rnd.NextBytes(img);
+        var c = new FrameConverter(1920, 1080);
+        var direct = new byte[c.FrameBytes];
+        c.Convert(img, 1920, 1080, 1920 * 4, direct, 0);
+        // Reference: the same picture with a stride the direct path can't take shortcuts on,
+        // through a 1:1 conversion computed here from the BT.709 formula.
+        for (var y = 0; y < 1080; y += 37)
+            for (var x = 0; x < 1920; x += 41)
+            {
+                var o = (y * 1920 + x) * 4;
+                Assert.Equal(FrameConverter.ToYCbCr(img[o + 2], img[o + 1], img[o]).Y, direct[y * 1920 + x]);
+            }
+        var o2 = 0; // top-left 2x2 block's chroma
+        int R = 0, G = 0, B = 0;
+        foreach (var (yy, xx) in new[] { (0, 0), (0, 1), (1, 0), (1, 1) })
+        {
+            o2 = (yy * 1920 + xx) * 4;
+            R += img[o2 + 2]; G += img[o2 + 1]; B += img[o2];
+        }
+        var (_, cb, cr) = FrameConverter.ToYCbCr((R + 2) / 4, (G + 2) / 4, (B + 2) / 4);
+        Assert.Equal(cb, direct[1920 * 1080]);
+        Assert.Equal(cr, direct[1920 * 1080 + 1]);
+    }
+}

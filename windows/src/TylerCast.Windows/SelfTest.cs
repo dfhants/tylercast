@@ -152,89 +152,134 @@ public static unsafe class Diag
 public static class SelfTest
 {
     /// <summary>
-    /// Every check that needs no TV, each on its own: diag, discovery, every encoder,
-    /// both capture methods, loopback (with and without the speakers muted), both
-    /// audio encoders, and 10s of the full pipeline to a file. Files land in <paramref name="dir"/>.
+    /// Every check that needs no TV, each in its own child process (tylercast selftest-part),
+    /// so a check that crashes the process (round 1: Windows' AC-3 encoder, 0xC0000409) fails
+    /// on its own and the rest still run. Files land in <paramref name="dir"/>; report.txt has
+    /// every check's output in order, with RESULT lines.
     /// </summary>
     public static int Run(string dir, bool tone)
     {
         Directory.CreateDirectory(dir);
         using var r = new Report(Path.Combine(dir, "report.txt"));
         r.Line($"TylerCast selftest {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
-        Diag.Run(r);
-
-        r.Section("Discovery (SSDP)");
-        r.Try("discovery", () =>
+        var parts = new List<string> { "diag", "discovery" };
+        parts.AddRange(EncoderPicker.List().Select(e => $"encoder:{e.Index}"));
+        parts.AddRange(["capture:dxgi", "capture:gdi", "loopback", "audio:Ac3", "audio:Aac", "pipeline:aac", "pipeline:ac3"]);
+        foreach (var part in parts)
         {
-            var found = Discovery.RenderersAsync(timeout: 4).GetAwaiter().GetResult();
-            foreach (var d in found) r.Line($"  {d.Name} [{d.Model}] at {d.Ip}, AVTransport {d.AVTransport}");
-            r.Result("discovery", found.Count > 0, found.Count > 0 ? string.Join(", ", found.Select(d => $"{d.Name} {d.Ip}"))
-                : $"no TV answered (send error: {Ssdp.LastSendError?.ToString() ?? "none"}); firewall, network profile, or TV off?");
-        });
-
-        var v = new VideoSettings();
-        r.Section("H.264 encoders (2s of the test pattern each)");
-        foreach (var e in EncoderPicker.List())
-        {
-            r.Try($"encoder {e.Index}", () =>
+            var psi = new ProcessStartInfo(Environment.ProcessPath!, ["selftest-part", part, dir, tone ? "tone" : "no-tone"])
             {
-                var t = EncoderPicker.Try(e, v, frames: 50);
-                var file = $"encoder-{e.Index}.ts";
-                if (t.TransportStream.Length > 0) File.WriteAllBytes(Path.Combine(dir, file), t.TransportStream);
-                r.Result($"encoder {e.Index} {e.Name}", t.Ok,
-                    $"{t.Detail}; {t.MsPerFrame:0.0}ms/frame to submit; file {file}" + (t.Refused.Count > 0 ? $"; refused: {string.Join(", ", t.Refused)}" : ""));
-            });
-        }
-
-        r.Section("Screen capture");
-        foreach (var method in new[] { "dxgi", "gdi" })
-        {
-            r.Try($"capture {method}", () => CaptureCheck(r, method, dir));
-        }
-
-        r.Section("Sound");
-        r.Try("loopback", () => LoopbackCheck(r, dir, tone));
-        foreach (var c in new[] { AudioCodec.Ac3, AudioCodec.Aac })
-        {
-            r.Try($"{c} encode", () =>
+                RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true,
+            };
+            using var child = Process.Start(psi)!;
+            child.OutputDataReceived += (_, e) => { if (e.Data is not null) r.Line(e.Data); };
+            child.ErrorDataReceived += (_, e) => { if (e.Data is not null && e.Data.Contains(" ERROR ")) r.Line(e.Data); };
+            child.BeginOutputReadLine();
+            child.BeginErrorReadLine();
+            if (!child.WaitForExit(180_000))
             {
-                using var enc = new MfAudioEncoder(c);
-                var mux = new OfflineMux(new TsMuxer.Config { AudioCodec = c });
-                var frames = 0;
-                enc.Output += (f, t) => { mux.Audio(f, t / 1e7); frames++; };
-                var pcm = Pcm.Sine(1000, 2, 0.5f);
-                for (var i = 0; i < pcm.Length; i += 960) enc.Encode(Pcm.ToInt16(pcm.AsSpan(i, Math.Min(960, pcm.Length - i))), i / 2 * 10_000_000L / 48_000);
-                var file = $"audio-{c.ToString().ToLowerInvariant()}.ts";
-                File.WriteAllBytes(Path.Combine(dir, file), mux.ToArray());
-                r.Result($"{c} encode", frames > 10, $"{enc.Name}: {frames} frames from 2s of a 1 kHz tone, {enc.Bitrate / 1000} kbit/s; file {file}");
-            });
-        }
-
-        r.Section("Full pipeline: 10s of screen and sound to a file");
-        r.Try("pipeline", () =>
-        {
-            var audio = Platform.Resolve(Platform.DefaultAudio());
-            var o = new MirrorOptions { Audio = audio, SoundOnTvOnly = false };
-            var p = new Pipeline(o, new WindowsVideoSource(o), o.CapturesSound ? new WindowsAudioSource(o.Codec, muteComputer: false) : null);
-            var path = Path.Combine(dir, "pipeline.ts");
-            long bytes = 0;
-            string? failed = null;
-            p.OnFailure = why => failed = why;
-            using (var f = File.Create(path))
-            {
-                var gate = new Lock();
-                p.Broadcaster.Subscribe((d, _) => { if (d is not null) lock (gate) { f.Write(d); bytes += d.Length; } });
-                p.StartAsync(serve: false).GetAwaiter().GetResult();
-                Thread.Sleep(10_500);
-                p.Stop();
+                child.Kill(entireProcessTree: true);
+                r.Result($"part {part}", false, "hung for 3 minutes; stopped");
+                continue;
             }
-            r.Result("pipeline", failed is null && bytes > 10_000_000, $"{bytes / 1_000_000.0:0.0} MB in 10s ({MirrorOptions.Name(audio)}); "
-                + (failed ?? "no failures") + "; file pipeline.ts (stats in the log)");
-        });
-
+            child.WaitForExit(); // flush the output events
+            if (child.ExitCode != 0)
+                r.Result($"part {part}", false, $"the check's process ended with 0x{child.ExitCode:X8}"
+                    + (child.ExitCode == unchecked((int)0xC0000409) ? " (a crash inside Windows or a driver)" : ""));
+        }
         r.Section("Done");
         r.Line($"Files in {dir}");
         return 0;
+    }
+
+    /// <summary>One check, in this (child) process. Output goes to stdout for the parent's report.</summary>
+    public static int RunPart(string part, string dir, bool tone)
+    {
+        using var r = new Report(Path.Combine(dir, $"part-{part.Replace(':', '-')}.txt"));
+        var v = new VideoSettings();
+        switch (part.Split(':'))
+        {
+            case ["diag"]:
+                Diag.Run(r);
+                break;
+            case ["discovery"]:
+                r.Section("Discovery (SSDP)");
+                r.Try("discovery", () =>
+                {
+                    var found = Discovery.RenderersAsync(timeout: 4).GetAwaiter().GetResult();
+                    foreach (var d in found) r.Line($"  {d.Name} [{d.Model}] at {d.Ip}, AVTransport {d.AVTransport}");
+                    r.Result("discovery", found.Count > 0, found.Count > 0 ? string.Join(", ", found.Select(d => $"{d.Name} {d.Ip}"))
+                        : $"no TV answered (send error: {Ssdp.LastSendError?.ToString() ?? "none"}); firewall, network profile, or TV off?");
+                });
+                break;
+            case ["encoder", var n]:
+                r.Section($"H.264 encoder {n} (2s of the test pattern)");
+                r.Try($"encoder {n}", () =>
+                {
+                    var e = EncoderPicker.List().First(x => x.Index.ToString(System.Globalization.CultureInfo.InvariantCulture) == n);
+                    var t = EncoderPicker.Try(e, v, frames: 50);
+                    var file = $"encoder-{e.Index}.ts";
+                    if (t.TransportStream.Length > 0) File.WriteAllBytes(Path.Combine(dir, file), t.TransportStream);
+                    r.Result($"encoder {e.Index} {e.Name}", t.Ok,
+                        $"{t.Detail}; {t.MsPerFrame:0.0}ms/frame to submit; file {file}" + (t.Refused.Count > 0 ? $"; refused: {string.Join(", ", t.Refused)}" : ""));
+                });
+                break;
+            case ["capture", var method]:
+                r.Section($"Screen capture: {method}");
+                r.Try($"capture {method}", () => CaptureCheck(r, method, dir));
+                break;
+            case ["loopback"]:
+                r.Section("Sound: loopback");
+                r.Try("loopback", () => LoopbackCheck(r, dir, tone));
+                break;
+            case ["audio", var codecName]:
+                var c = Enum.Parse<AudioCodec>(codecName);
+                r.Section($"Sound: {c} encoder");
+                r.Try($"{c} encode", () =>
+                {
+                    using var enc = new MfAudioEncoder(c);
+                    var mux = new OfflineMux(new TsMuxer.Config { AudioCodec = c });
+                    var frames = 0;
+                    enc.Output += (f, t) => { mux.Audio(f, t / 1e7); frames++; };
+                    var pcm = Pcm.Sine(1000, 2, 0.5f);
+                    for (var i = 0; i < pcm.Length; i += 960) enc.Encode(Pcm.ToInt16(pcm.AsSpan(i, Math.Min(960, pcm.Length - i))), i / 2 * 10_000_000L / 48_000);
+                    var file = $"audio-{c.ToString().ToLowerInvariant()}.ts";
+                    File.WriteAllBytes(Path.Combine(dir, file), mux.ToArray());
+                    r.Result($"{c} encode", frames > 10, $"{enc.Name}: {frames} frames from 2s of a 1 kHz tone, {enc.Bitrate / 1000} kbit/s; file {file}");
+                });
+                break;
+            case ["pipeline", var kind]:
+                r.Section($"Full pipeline, {kind}: 20s of screen and sound to a file");
+                r.Try($"pipeline {kind}", () => PipelineCheck(r, dir, kind == "ac3" ? MirrorOptions.AudioKind.Ac3 : MirrorOptions.AudioKind.Aac));
+                break;
+            default:
+                r.Result($"part {part}", false, "unknown part");
+                return 2;
+        }
+        return 0;
+    }
+
+    private static void PipelineCheck(Report r, string dir, MirrorOptions.AudioKind wanted)
+    {
+        var audio = Platform.Resolve(wanted);
+        var o = new MirrorOptions { Audio = audio, SoundOnTvOnly = false };
+        var p = new Pipeline(o, new WindowsVideoSource(o), o.CapturesSound ? new WindowsAudioSource(o.Codec, muteComputer: false) : null);
+        var file = $"pipeline-{MirrorOptions.Name(wanted)}.ts";
+        long bytes = 0;
+        string? failed = null;
+        p.OnFailure = why => failed = why;
+        using (var f = File.Create(Path.Combine(dir, file)))
+        {
+            var gate = new Lock();
+            p.Broadcaster.Subscribe((d, _) => { if (d is not null) lock (gate) { f.Write(d); bytes += d.Length; } });
+            p.StartAsync(serve: false).GetAwaiter().GetResult();
+            Thread.Sleep(20_500); // the second 10s window is the steady one (the first includes start-up)
+            p.Stop();
+        }
+        var s = p.Pacer.LastStats;
+        var frames = s is { } st ? $"{st.VideoFrames} video frames in 10s (25fps = 250), {st.AudioFrames} audio, {st.LateFrames} late" : "no stats";
+        r.Result($"pipeline {MirrorOptions.Name(wanted)}", failed is null && bytes > 10_000_000 && s is { LateFrames: 0, VideoFrames: > 230 },
+            $"{bytes / 1_000_000.0:0.0} MB ({MirrorOptions.Name(audio)}); {frames}; {failed ?? "no failures"}; file {file}");
     }
 
     /// <summary>

@@ -181,6 +181,10 @@ public sealed unsafe class MfH264Encoder : IDisposable
     private readonly Lock _gate = new();
 
     public byte[]? SequenceHeader { get; }
+    /// <summary>The encoder settled a new sequence header (SPS/PPS) after starting.</summary>
+    public event Action<byte[]>? SequenceHeaderChanged;
+    private uint _streamFlags;
+    private int _outputs;
 
     internal static List<(EncoderInfo Info, IMFActivate Activate)> Enumerate() =>
         Mf.Enumerate(PInvoke.MFT_CATEGORY_VIDEO_ENCODER, PInvoke.MFMediaType_Video, PInvoke.MFVideoFormat_NV12, PInvoke.MFVideoFormat_H264);
@@ -239,6 +243,7 @@ public sealed unsafe class MfH264Encoder : IDisposable
 
         MFT_OUTPUT_STREAM_INFO si;
         _t.GetOutputStreamInfo(0, &si);
+        _streamFlags = si.dwFlags;
         _providesSamples = (si.dwFlags & 0x100) != 0 || (si.dwFlags & 0x200) != 0; // PROVIDES_SAMPLES / CAN_PROVIDE_SAMPLES
         _outputSize = Math.Max(si.cbSize, (uint)(v.Width * v.Height * 3 / 2));
 
@@ -250,7 +255,8 @@ public sealed unsafe class MfH264Encoder : IDisposable
             _eventThread = new Thread(EventLoop) { Name = "mft-events", IsBackground = true };
             _eventThread.Start();
         }
-        Log.Info($"Encoder: {info.Name} ({(info.Hardware ? "hardware" : "software")}, {(isAsync ? "async" : "sync")})"
+        Log.Info($"Encoder: {info.Name} ({(info.Hardware ? "hardware" : "software")}, {(isAsync ? "async" : "sync")}, "
+            + $"output stream flags 0x{si.dwFlags:X}, size {si.cbSize})"
             + (Refused.Count > 0 ? $"; refused {string.Join(", ", Refused)}" : ""));
     }
 
@@ -364,16 +370,25 @@ public sealed unsafe class MfH264Encoder : IDisposable
             }
             if (hr == HRESULT.MF_E_TRANSFORM_STREAM_CHANGE)
             {
-                // The encoder wants its output type confirmed again.
+                // The encoder has settled its output format (Intel's does this on its first
+                // output, with the sequence header): confirm it. An async encoder then sends a
+                // fresh HaveOutput; asking again now gets E_UNEXPECTED (round 1, test laptop).
                 Release(buf[0]);
                 var got = Mf.FindType(i => (_t.GetOutputAvailableType(0, i, out var t), t), PInvoke.MFVideoFormat_H264);
-                if (got is not null) _t.SetOutputType(0, got, 0);
+                if (got is not null)
+                {
+                    _t.SetOutputType(0, got, 0);
+                    if (Mf.GetBlob(got, PInvoke.MF_MT_MPEG_SEQUENCE_HEADER) is { } sh) SequenceHeaderChanged?.Invoke(sh);
+                }
+                Log.Debug($"{Info.Name}: output format changed; confirmed");
+                if (_events is not null) return;
                 continue;
             }
             if (hr.Failed)
             {
                 Release(buf[0]);
-                Failed?.Invoke($"{Info.Name}: ProcessOutput 0x{(uint)hr.Value:X8}");
+                Failed?.Invoke($"{Info.Name}: ProcessOutput 0x{(uint)hr.Value:X8} (output #{_outputs + 1}, "
+                    + $"stream flags 0x{_streamFlags:X}, {(_providesSamples ? "encoder's samples" : "our samples")})");
                 return;
             }
             var sample = buf[0].pSample;
@@ -383,6 +398,7 @@ public sealed unsafe class MfH264Encoder : IDisposable
                 var key = Mf.GetUInt32(sample, PInvoke.MFSampleExtension_CleanPoint) == 1;
                 var data = Mf.Bytes(sample);
                 Release(buf[0]);
+                _outputs++;
                 if (data.Length > 0) Output?.Invoke(data, time, key);
             }
             if (_events is not null) return; // async: one output per HaveOutput event

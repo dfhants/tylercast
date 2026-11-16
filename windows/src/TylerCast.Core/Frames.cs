@@ -43,6 +43,24 @@ public sealed class FrameConverter
         nv12[(Width * Height)..FrameBytes].Fill(128);
         if (r.Width <= 0 || r.Height <= 0) return r;
 
+        if (r.Width == srcW && r.Height == srcH)
+        {
+            // Already the output size (a 1920x1080 laptop, no margin): no scaling, just colour.
+            unsafe
+            {
+                fixed (byte* src = bgra)
+                fixed (byte* dst = nv12)
+                {
+                    var s0 = (nint)src;
+                    var d0 = (nint)dst;
+                    int w0 = Width, h0 = Height;
+                    Parallel.For(0, r.Height / 2, new ParallelOptions { MaxDegreeOfParallelism = MaxThreads },
+                        pair => ConvertPairDirect((byte*)s0, stride, (byte*)d0, w0, h0, r, pair));
+                }
+            }
+            return r;
+        }
+
         // Column lookups depend only on the geometry: worked out once, not per pixel.
         if (_cols is null || _colsFor != (srcW, r.Width))
         {
@@ -77,6 +95,30 @@ public sealed class FrameConverter
             }
         }
         return r;
+    }
+
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveOptimization)]
+    private static unsafe void ConvertPairDirect(byte* src, int stride, byte* dst, int w, int h, PixelRect r, int pair)
+    {
+        var row0 = src + (long)(pair * 2) * stride;
+        var row1 = row0 + stride;
+        var y0 = dst + (long)(r.Y + pair * 2) * w + r.X;
+        var y1 = y0 + w;
+        var uv = dst + (long)w * h + (long)(r.Y / 2 + pair) * w + r.X;
+        for (var x = 0; x < r.Width; x += 2)
+        {
+            byte* a = row0 + x * 4, b = a + 4, c = row1 + x * 4, e = c + 4;
+            y0[x] = Luma(a); y0[x + 1] = Luma(b); y1[x] = Luma(c); y1[x + 1] = Luma(e);
+            var (_, cb, cr) = ToYCbCr((a[2] + b[2] + c[2] + e[2] + 2) >> 2, (a[1] + b[1] + c[1] + e[1] + 2) >> 2, (a[0] + b[0] + c[0] + e[0] + 2) >> 2);
+            uv[x] = cb;
+            uv[x + 1] = cr;
+        }
+    }
+
+    private static unsafe byte Luma(byte* p)
+    {
+        var y = (47 * p[2] + 157 * p[1] + 16 * p[0] + 128) / 256 + 16;
+        return (byte)(y > 235 ? 235 : y);
     }
 
     private int[]? _cols;

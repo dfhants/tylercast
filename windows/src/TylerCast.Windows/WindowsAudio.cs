@@ -228,11 +228,13 @@ public sealed unsafe class MfAudioEncoder : IDisposable
         }
         finally { foreach (var (_, a) in all) Marshal.ReleaseComObject(a); }
 
-        // Encoders disagree on the order: some want the output type first, others the input
-        // type first (and only list output types once it is set). Try one order, then the other.
+        // Encoders disagree on the order: Microsoft's AAC encoder takes the output type first;
+        // its Dolby Digital (AC-3) encoder needs the input type first, and asking it for output
+        // types before that crashed the process outright (round 1, 0xC0000409). So AC-3 is only
+        // ever set input-first; AAC tries output-first, then input-first.
         var wantBytes = codec == AudioCodec.Aac ? 20_000u : 24_000u; // 160 / 192 kbit/s
         Exception? first = null;
-        foreach (var outputFirst in new[] { true, false })
+        foreach (var outputFirst in codec == AudioCodec.Aac ? new[] { true, false } : [false])
         {
             try
             {

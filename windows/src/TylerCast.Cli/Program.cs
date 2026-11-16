@@ -63,6 +63,7 @@ try
     {
 #if WINDOWS
         "diag" => RunDiag(),
+        "selftest-part" => SelfTest.RunPart(rest[0], rest[1], tone: rest.ElementAtOrDefault(2) != "no-tone"),
         "selftest" => SelfTest.Run(rest.FirstOrDefault() ?? Path.Combine(Environment.CurrentDirectory, $"selftest-{DateTime.Now:yyyyMMdd-HHmmss}"),
             tone: !flags.Contains("--no-tone")),
 #endif

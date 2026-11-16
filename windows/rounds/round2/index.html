@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TylerCast round 2</title>
+<style>
+  :root { --bg: #fafaf7; --fg: #1d1d1b; --muted: #6b6b66; --card: #ffffff; --line: #e3e2dc; --accent: #2f5fd0; --ok: #1d7a46; --code: #f1f0ea; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #161615; --fg: #ecebe6; --muted: #a09f98; --card: #1f1f1d; --line: #34332f; --accent: #7fa2ff; --ok: #5cc28a; --code: #2a2a27; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.55 "Segoe UI", system-ui, sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font-size: 26px; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 28px; }
+  ol.steps { list-style: none; padding: 0; margin: 0; counter-reset: s; }
+  ol.steps > li { counter-increment: s; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px 16px 58px; margin: 0 0 12px; position: relative; }
+  ol.steps > li::before { content: counter(s); position: absolute; left: 18px; top: 15px; width: 26px; height: 26px; border-radius: 50%; background: var(--accent); color: var(--bg); font-weight: 600; text-align: center; line-height: 26px; font-size: 14px; }
+  ol.steps h2 { font-size: 17px; margin: 0 0 6px; }
+  ol.steps p, ol.steps ul { margin: 6px 0; }
+  .cmd { display: flex; gap: 8px; align-items: stretch; margin: 10px 0 4px; }
+  .cmd code { flex: 1; background: var(--code); border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; font: 14px/1.4 Consolas, ui-monospace, monospace; overflow-x: auto; white-space: nowrap; }
+  button { font: inherit; border: 0; border-radius: 6px; padding: 8px 14px; background: var(--accent); color: var(--bg); cursor: pointer; font-weight: 600; }
+  button:disabled { opacity: .5; cursor: default; }
+  .muted { color: var(--muted); font-size: 14px; }
+  details { margin-top: 28px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px 18px; }
+  summary { cursor: pointer; font-weight: 600; }
+  a { color: var(--accent); }
+  #status { margin-top: 10px; font-weight: 600; }
+  #status.ok { color: var(--ok); }
+</style>
+</head>
+<body>
+<main>
+  <h1>TylerCast: Windows test round 2</h1>
+  <p class="sub">About 10 minutes on the Windows laptop, with the TV nearby. <b>Plug the laptop in first</b> (on battery Windows slows it down, which spoils the smoothness checks). One script does everything and sends the results back to the Mac.</p>
+
+  <ol class="steps">
+    <li>
+      <h2>Open PowerShell on the Windows laptop</h2>
+      <p>Press the Windows key, type <b>PowerShell</b>, and open <b>Windows PowerShell</b>. Don't use "Run as administrator": it doesn't need it.</p>
+    </li>
+    <li>
+      <h2>Paste this line and press Enter</h2>
+      <div class="cmd"><code id="cmd">irm __BASE__/round.ps1 | iex</code><button id="copy" type="button">Copy</button></div>
+      <p class="muted">It downloads TylerCast (about 50 MB) into a folder on your Desktop, <i>TylerCast-round2</i>. Nothing is installed and no settings are changed.</p>
+    </li>
+    <li>
+      <h2>Follow the prompts in the PowerShell window</h2>
+      <ul>
+        <li><b>Self-test (1–2 minutes):</b> leave the mouse and keyboard alone. A pink box flashes at the top-left of the screen, and you'll hear two short beeps.</li>
+        <li><b>TV checks (about 3 minutes):</b> turn the TV on (normal TV or HDMI input, not standby). You'll be asked a few yes/no questions about what the TV shows.</li>
+        <li>If Windows asks to <b>allow TylerCast on the network</b>, tick <b>Private networks</b> and click <b>Allow</b>.</li>
+        <li>For the screen check, start something with sound first (a YouTube video, music).</li>
+      </ul>
+    </li>
+    <li>
+      <h2>That's it</h2>
+      <p>At the end the script sends the results to the Mac by itself and says "All done".</p>
+    </li>
+  </ol>
+
+  <details>
+    <summary>If something goes wrong</summary>
+    <p><b>The PowerShell line fails or nothing downloads:</b> check the laptop is on the same Wi-Fi as the Mac, then reload this page.</p>
+    <p><b>Download TylerCast by hand:</b> <a href="__BASE__/files/tylercast.exe">tylercast.exe</a> (about 50 MB).</p>
+    <p><b>The script couldn't send the results:</b> they're in <i>Desktop\TylerCast-round2\results-round2.zip</i>. Choose that file here and send it:</p>
+    <p><input type="file" id="file" accept=".zip"> <button id="send" type="button" disabled>Send to the Mac</button></p>
+    <div id="status" role="status"></div>
+  </details>
+</main>
+<script>
+  const copy = document.getElementById('copy');
+  copy.addEventListener('click', async () => {
+    const text = document.getElementById('cmd').textContent;
+    try { await navigator.clipboard.writeText(text); copy.textContent = 'Copied'; }
+    catch { const r = document.createRange(); r.selectNodeContents(document.getElementById('cmd')); const s = getSelection(); s.removeAllRanges(); s.addRange(r); copy.textContent = 'Press Ctrl+C'; }
+    setTimeout(() => copy.textContent = 'Copy', 2500);
+  });
+  const file = document.getElementById('file'), send = document.getElementById('send'), status = document.getElementById('status');
+  file.addEventListener('change', () => { send.disabled = !file.files.length; });
+  send.addEventListener('click', async () => {
+    const f = file.files[0]; if (!f) return;
+    send.disabled = true; status.className = ''; status.textContent = `Sending ${(f.size / 1048576).toFixed(1)} MB…`;
+    try {
+      const r = await fetch('__BASE__/upload?name=results-round2.zip', { method: 'POST', body: f, headers: { 'Content-Type': 'application/zip' } });
+      status.textContent = r.ok ? 'Received by the Mac. Thank you!' : `The Mac said: ${await r.text()}`;
+      if (r.ok) status.className = 'ok';
+    } catch (e) { status.textContent = `Couldn't send: ${e}`; }
+    send.disabled = false;
+  });
+</script>
+</body>
+</html>

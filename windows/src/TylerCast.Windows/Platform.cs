@@ -33,9 +33,12 @@ public static class Platform
         else Log.Info(on ? "Keeping the display awake while mirroring" : "Display may sleep again");
     }
 
-    /// <summary>The audio kind to use when none was asked for: AC-3 (what the TV lists) if Windows can encode it, else AAC.</summary>
-    public static MirrorOptions.AudioKind DefaultAudio() =>
-        MfAudioEncoder.Available(AudioCodec.Ac3).Count > 0 ? MirrorOptions.AudioKind.Ac3 : MirrorOptions.AudioKind.Aac;
+    /// <summary>
+    /// The audio kind to use when none was asked for: AAC, which the test TV plays (Mac app,
+    /// and round 1 on Windows). AC-3 (what the TV lists) is opt-in with --audio ac3 until
+    /// Windows' Dolby encoder is proven: it crashed the process in round 1.
+    /// </summary>
+    public static MirrorOptions.AudioKind DefaultAudio() => MirrorOptions.AudioKind.Aac;
 
     /// <summary>
     /// What can actually be sent: the computer's sound needs an output device to listen to
