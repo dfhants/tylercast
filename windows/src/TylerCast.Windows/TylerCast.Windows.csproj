@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Windows-only: screen capture (Desktop Duplication, GDI), Media Foundation
+       encoders, WASAPI loopback, diag and selftest. Builds on the Mac
+       (EnableWindowsTargeting); runs only on Windows 10 2004+ / Windows 11. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <UseWindowsForms>true</UseWindowsForms>
+    <!-- The minimum (Windows 10 2004) is checked at start-up (Platform.CheckVersion); raising
+         SupportedOSPlatformVersion instead would pull in the 25 MB WinRT projection. -->
+    <NoWarn>$(NoWarn);CA1416</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\TylerCast.Core\TylerCast.Core.csproj" />
+    <!-- Generates Win32/COM declarations at build time from Microsoft's metadata: no runtime dependency. -->
+    <PackageReference Include="Microsoft.Windows.CsWin32" Version="0.3.371" PrivateAssets="all" />
+  </ItemGroup>
+</Project>

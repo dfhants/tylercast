@@ -1,0 +1,17 @@
+{
+  "$schema": "https://aka.ms/CsWin32.schema.json",
+  "allowMarshaling": true,
+  "public": false,
+  "comInterop": {
+    "preserveSigMethods": [
+      "IDXGIOutputDuplication.AcquireNextFrame",
+      "IMFTransform.ProcessInput",
+      "IMFTransform.ProcessOutput",
+      "IMFTransform.GetInputAvailableType",
+      "IMFTransform.GetOutputAvailableType",
+      "IMFMediaEventGenerator.GetEvent",
+      "ICodecAPI.SetValue",
+      "IAudioCaptureClient.GetBuffer"
+    ]
+  }
+}

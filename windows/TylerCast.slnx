@@ -2,6 +2,7 @@
   <Folder Name="/src/">
     <Project Path="src/TylerCast.Cli/TylerCast.Cli.csproj" />
     <Project Path="src/TylerCast.Core/TylerCast.Core.csproj" />
+    <Project Path="src/TylerCast.Windows/TylerCast.Windows.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/TylerCast.Core.Tests/TylerCast.Core.Tests.csproj" />

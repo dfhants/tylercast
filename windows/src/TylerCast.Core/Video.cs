@@ -12,9 +12,10 @@ public interface IVideoSource : IDisposable
     /// <summary>
     /// Starts producing access units: Annex B with AUD (and SPS/PPS before each
     /// keyframe), the host time the frame stands for, and whether it is a keyframe.
-    /// Called on the source's own thread.
+    /// Called on the source's own thread. <paramref name="onError"/>: the source has failed
+    /// for good (capture lost, encoder died); the session stops and says why.
     /// </summary>
-    void Start(Action<byte[], double, bool> onAccessUnit);
+    void Start(Action<byte[], double, bool> onAccessUnit, Action<string>? onError = null);
 
     /// <summary>The next frame should be a keyframe (a TV has just connected).</summary>
     void RequestKeyframe();
@@ -130,7 +131,7 @@ public sealed class ClipVideoSource : IVideoSource
         return aus;
     }
 
-    public void Start(Action<byte[], double, bool> onAccessUnit)
+    public void Start(Action<byte[], double, bool> onAccessUnit, Action<string>? onError = null)
     {
         _clock = new FrameClock(Fps, (_, host, force) =>
         {

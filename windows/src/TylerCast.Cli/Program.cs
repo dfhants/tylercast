@@ -3,8 +3,11 @@ using System.Net;
 using TylerCast.Core;
 
 // TylerCast command line: the Swift app's CLI modes, for debugging and for the
-// Windows test rounds. Screen capture comes with the Windows project; until then
-// the video is the pre-encoded test pattern (--test-pattern), which runs anywhere.
+// Windows test rounds. The Mac build (net10.0) has only the pre-encoded test
+// pattern; the Windows build adds the screen, sound, diag and selftest.
+#if WINDOWS
+using TylerCast.Windows;
+#endif
 
 const string Usage = """
     tylercast: mirror this computer's screen to a DLNA TV.
@@ -17,15 +20,22 @@ const string Usage = """
     stream options:
       --test-pattern     colour bars (pre-encoded clip) instead of the screen
       --margin PCT       black border on each edge, beats TV overscan (try 3-5)
-      --audio KIND       aac (default: the computer's sound), silent-ac3, none (= --no-audio)
+      --audio KIND       ac3 or aac (the computer's sound; default ac3 if Windows can encode it),
+                         silent-ac3, none (= --no-audio)
+      --pc-sound         keep this computer's speakers on too (default: muted while mirroring)
+      --capture dxgi|gdi --encoder NAME    force a capture method / encoder (default: best that works)
       --bitrate 6M       video;  --muxrate 20M  constant TS rate (null padding)
       --delay 0.15       seconds of capture-to-DTS slack; raise if the log shows late frames
       --mime video/mpeg  --no-pn  --tlag  --no-metadata  --port 8090
       -v                 full SSDP/SOAP/HTTP bodies on stderr (always in the log file)
+
+    Windows only:
+      diag                            system, GPUs, encoders, sound device, network, firewall
+      selftest [DIR] [--no-tone]      every check that needs no TV; files and report.txt in DIR
     """;
 
 string[] valued = ["--tv", "--avt", "--margin", "--bitrate", "--muxrate", "--delay", "--mime", "--port", "--seconds",
-                   "--timeout", "--st", "--audio", "--via"];
+                   "--timeout", "--st", "--audio", "--via", "--capture", "--encoder"];
 var positional = new List<string>();
 var values = new Dictionary<string, string>();
 var flags = new HashSet<string>();
@@ -46,8 +56,16 @@ var rest = positional.Skip(1).ToList();
 
 try
 {
+#if WINDOWS
+    Platform.Init();
+#endif
     return cmd switch
     {
+#if WINDOWS
+        "diag" => RunDiag(),
+        "selftest" => SelfTest.Run(rest.FirstOrDefault() ?? Path.Combine(Environment.CurrentDirectory, $"selftest-{DateTime.Now:yyyyMMdd-HHmmss}"),
+            tone: !flags.Contains("--no-tone")),
+#endif
         "discover" => await Discover(),
         "play" => await Play(),
         "serve" => await Serve(),
@@ -91,9 +109,13 @@ double Number(string name, double fallback) =>
 MirrorOptions Options()
 {
     var o = new MirrorOptions();
+#if WINDOWS
+    var audio = values.ContainsKey("--audio") || flags.Contains("--test-pattern") ? o.Audio : Platform.DefaultAudio();
+#else
     var audio = o.Audio;
+#endif
     if (values.TryGetValue("--audio", out var k))
-        audio = MirrorOptions.ParseAudio(k) ?? throw new FormatException("--audio must be one of aac, silent-ac3, none");
+        audio = MirrorOptions.ParseAudio(k) ?? throw new FormatException("--audio must be one of ac3, aac, silent-ac3, none");
     if (flags.Contains("--no-audio")) audio = MirrorOptions.AudioKind.None;
     o = o with
     {
@@ -114,9 +136,29 @@ MirrorOptions Options()
     return o;
 }
 
-// Screen capture is Windows code that doesn't exist yet; the test pattern runs anywhere.
-static IVideoSource VideoFor(MirrorOptions o) =>
-    o.TestPattern ? new ClipVideoSource() : throw new PipelineException("screen capture isn't built yet: use --test-pattern");
+// The test pattern runs anywhere; the screen and sound need the Windows build.
+IVideoSource VideoFor(MirrorOptions o) =>
+#if WINDOWS
+    o.TestPattern ? new ClipVideoSource() : new WindowsVideoSource(o, values.GetValueOrDefault("--capture"), values.GetValueOrDefault("--encoder"));
+#else
+    o.TestPattern ? new ClipVideoSource() : throw new PipelineException("screen capture needs the Windows build: use --test-pattern");
+#endif
+
+static IAudioSource? AudioFor(MirrorOptions o) =>
+#if WINDOWS
+    o.CapturesSound ? new WindowsAudioSource(o.Codec, o.SoundOnTvOnly) : null;
+#else
+    null;
+#endif
+
+#if WINDOWS
+int RunDiag()
+{
+    using var r = new Report(Path.Combine(Path.GetTempPath(), "tylercast-diag.txt"));
+    Diag.Run(r);
+    return 0;
+}
+#endif
 
 // Ctrl-C, SIGTERM, or (Windows) the console window closing / log-off / shutdown:
 // stop cleanly, so the TV gets Stop. A second Ctrl-C gives up waiting.
@@ -194,7 +236,10 @@ async Task<int> Play()
 {
     var options = Options();
     var tv = await FindTv();
-    var session = new MirrorSession(options, VideoFor);
+    var session = new MirrorSession(options, VideoFor, AudioFor);
+#if WINDOWS
+    session.KeepAwake = Platform.KeepAwake;
+#endif
     var ended = new TaskCompletionSource<int>();
     session.StateChanged += s =>
     {
@@ -214,7 +259,8 @@ async Task<int> Play()
 
 async Task<int> Serve()
 {
-    var p = new Pipeline(Options(), VideoFor(Options()));
+    var so = Options();
+    var p = new Pipeline(so, VideoFor(so), AudioFor(so));
     var ctrlC = CtrlC();
     await p.StartAsync(serve: true);
     Log.Info($"Serving http://{Ssdp.LocalAddressTowards("8.8.8.8") ?? "<this computer>"}:{p.Options.Port}{p.StreamPath} "
@@ -229,7 +275,7 @@ async Task<int> Record()
     var path = rest.FirstOrDefault() ?? throw new ArgumentException("record needs a file name");
     var seconds = Number("--seconds", 10);
     var o = Options();
-    var p = new Pipeline(o, VideoFor(o));
+    var p = new Pipeline(o, VideoFor(o), AudioFor(o));
     long bytes = 0;
     await using (var f = File.Create(path))
     {

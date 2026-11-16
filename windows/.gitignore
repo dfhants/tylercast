@@ -4,3 +4,4 @@ out/
 results/
 *.user
 test-results/
+ci-selftest/

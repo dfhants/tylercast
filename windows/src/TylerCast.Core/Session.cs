@@ -11,6 +11,9 @@ public sealed record MirrorOptions
         /// <summary>The computer's sound, AAC. The test TV doesn't list AAC with H.264 TS, but plays it
         /// (tried 2026-11-15 with AVC_TS_MP_HD_AAC_MULT5_ISO).</summary>
         Aac,
+        /// <summary>The computer's sound, AC-3: exactly the profile the test TV lists. Windows
+        /// has an AC-3 (Dolby Digital) encoder; macOS doesn't.</summary>
+        Ac3,
         None,
     }
 
@@ -32,18 +35,20 @@ public sealed record MirrorOptions
 
     /// <summary>What is actually sent: the test pattern captures no sound, so it keeps
     /// the silent AC-3 track rather than an empty AAC one.</summary>
-    public AudioKind EffectiveAudio => TestPattern && Audio == AudioKind.Aac ? AudioKind.SilentAc3 : Audio;
+    public AudioKind EffectiveAudio => TestPattern && Audio is AudioKind.Aac or AudioKind.Ac3 ? AudioKind.SilentAc3 : Audio;
     public AudioCodec Codec => EffectiveAudio == AudioKind.Aac ? AudioCodec.Aac : AudioCodec.Ac3;
+    /// <summary>True when the computer's sound is captured and encoded.</summary>
+    public bool CapturesSound => EffectiveAudio is AudioKind.Aac or AudioKind.Ac3;
     public string ContentFeatures => Dlna.ContentFeatures(SendProfile ? Dlna.ProfileFor(Codec) : null);
 
     public static string Name(AudioKind k) => k switch
     {
-        AudioKind.SilentAc3 => "silent-ac3", AudioKind.Aac => "aac", _ => "none",
+        AudioKind.SilentAc3 => "silent-ac3", AudioKind.Aac => "aac", AudioKind.Ac3 => "ac3", _ => "none",
     };
 
     public static AudioKind? ParseAudio(string s) => s switch
     {
-        "silent-ac3" => AudioKind.SilentAc3, "aac" => AudioKind.Aac, "none" => AudioKind.None, _ => null,
+        "silent-ac3" => AudioKind.SilentAc3, "aac" => AudioKind.Aac, "ac3" => AudioKind.Ac3, "none" => AudioKind.None, _ => null,
     };
 }
 
@@ -64,13 +69,15 @@ public sealed class Pipeline
     public Action<string>? OnFailure { get; set; }
 
     private readonly IVideoSource _video;
+    private readonly IAudioSource? _audio;
     private readonly SilentAudioSource _silence = new();
     private int _sawFrame;
 
-    public Pipeline(MirrorOptions options, IVideoSource video)
+    public Pipeline(MirrorOptions options, IVideoSource video, IAudioSource? audio = null)
     {
         Options = options;
         _video = video;
+        _audio = audio;
         var mc = new TsMuxer.Config
         {
             MuxRate = options.MuxRate,
@@ -86,8 +93,10 @@ public sealed class Pipeline
     /// </summary>
     public async Task StartAsync(bool serve, string? allowedPeer = null, string? bindHost = null, CancellationToken ct = default)
     {
-        if (Options.EffectiveAudio == MirrorOptions.AudioKind.Aac)
-            throw new PipelineException("capturing the computer's sound isn't built yet: use --audio silent-ac3 or --test-pattern");
+        if (Options.CapturesSound && _audio is null)
+            throw new PipelineException("capturing the computer's sound isn't available here: use --audio silent-ac3 or --test-pattern");
+        if (Options.CapturesSound && _audio!.Codec != Options.Codec)
+            throw new PipelineException($"the sound source makes {_audio.Codec}, not {Options.Codec}");
         if (serve)
         {
             var h = new StreamHeaders { ContentType = Options.Mime, ContentFeatures = Options.ContentFeatures, Tlag = Options.Tlag };
@@ -109,6 +118,10 @@ public sealed class Pipeline
             Log.Info("Audio: silent AC-3 track" + (Options.TestPattern && Options.Audio == MirrorOptions.AudioKind.Aac
                 ? " (test pattern: no sound to capture)" : ""));
         }
+        else if (Options.CapturesSound)
+        {
+            Log.Info($"Audio: {_audio!.Name} (profile {Dlna.ProfileFor(Options.Codec)})");
+        }
         else
         {
             Log.Info("Audio: none (video-only TS)");
@@ -121,7 +134,9 @@ public sealed class Pipeline
         {
             Pacer.WithMuxer(m => m.EnqueueVideo(au, Pacer.Pts90ForHost(host), key));
             Interlocked.Exchange(ref _sawFrame, 1);
-        });
+        }, why => OnFailure?.Invoke(why));
+        _audio?.Start((frame, host) => Pacer.WithMuxer(m => m.EnqueueAudio(frame, Pacer.Pts90ForHost(host))),
+            why => OnFailure?.Invoke($"sound: {why}"));
         for (var i = 0; i < 40 && Volatile.Read(ref _sawFrame) == 0; i++) await Task.Delay(100, ct).ConfigureAwait(false);
         if (Volatile.Read(ref _sawFrame) == 0)
         {
@@ -133,6 +148,7 @@ public sealed class Pipeline
 
     public void Stop()
     {
+        _audio?.Stop();
         _video.Stop();
         Pacer.Stop();
         Server?.Stop();
@@ -144,7 +160,8 @@ public sealed class Pipeline
 /// One mirroring session to one TV: pipeline up first, then SOAP Stop,
 /// SetAVTransportURI, Play. Stop on the way out.
 /// </summary>
-public sealed class MirrorSession(MirrorOptions options, Func<MirrorOptions, IVideoSource> videoFactory)
+public sealed class MirrorSession(MirrorOptions options, Func<MirrorOptions, IVideoSource> videoFactory,
+    Func<MirrorOptions, IAudioSource?>? audioFactory = null)
 {
     public abstract record State
     {
@@ -215,7 +232,10 @@ public sealed class MirrorSession(MirrorOptions options, Func<MirrorOptions, IVi
             }
 
             Set(new State.Connecting("starting capture and encoder"));
-            var p = new Pipeline(Options, videoFactory(Options)) { OnFailure = why => _ = FailAsync(why) };
+            var p = new Pipeline(Options, videoFactory(Options), Options.CapturesSound ? audioFactory?.Invoke(Options) : null)
+            {
+                OnFailure = why => _ = FailAsync(why),
+            };
             _pipeline = p;
             await p.StartAsync(serve: true, allowedPeer: tv.Ip, bindHost: host, ct).ConfigureAwait(false);
 
