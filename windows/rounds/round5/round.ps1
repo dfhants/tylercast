@@ -8,6 +8,8 @@ $ErrorActionPreference = 'Continue'
 $ProgressPreference = 'SilentlyContinue'
 $Base = '__BASE__'
 $Setup = '__SETUP__'
+# SHA-256 of each download, filled in by the Mac: nothing is run unless it matches.
+$Hashes = @{ __HASHES__ }
 $Work = Join-Path ([Environment]::GetFolderPath('Desktop')) 'TylerCast-round5'
 $Results = Join-Path $Work 'results'
 New-Item -ItemType Directory -Force -Path $Results | Out-Null
@@ -46,6 +48,13 @@ $installer = Join-Path $Work $Setup
 try {
     Invoke-WebRequest "$Base/files/$Setup" -OutFile $installer -UseBasicParsing
     Write-Host "Downloaded $Setup, $([math]::Round((Get-Item $installer).Length / 1MB)) MB"
+    $got = (Get-FileHash $installer -Algorithm SHA256).Hash
+    if ($got -ne $Hashes[$Setup]) {
+        Remove-Item $installer -Force
+        throw "the installer doesn't match the one the Mac sent (SHA-256 $got): it was changed on the way"
+    }
+    Write-Host 'Installer checked: it is exactly the one the Mac sent.' -ForegroundColor Green
+    Note 'installer_sha256' $got
 } catch {
     Write-Host "Download failed: $_" -ForegroundColor Red
     Stop-Transcript | Out-Null

@@ -148,6 +148,9 @@ public sealed class StreamServer(Broadcaster broadcaster, StreamHeaders headers,
         foreach (var s in all) s.Dispose();
     }
 
+    /// <summary>When each refused address was last logged (a flood shouldn't fill the log).</summary>
+    private readonly Dictionary<string, DateTime> _refusedLogged = [];
+
     private async Task AcceptLoop(TcpListener l)
     {
         while (!_stop.IsCancellationRequested)
@@ -160,7 +163,12 @@ public sealed class StreamServer(Broadcaster broadcaster, StreamHeaders headers,
                 var from = Normalize(Peer(s));
                 if (from != AllowedPeer)
                 {
-                    Log.Warn($"Refused a connection from {from}: only the TV ({AllowedPeer}) may watch");
+                    var now = DateTime.UtcNow;
+                    if (!_refusedLogged.TryGetValue(from, out var last) || now - last > TimeSpan.FromSeconds(10))
+                    {
+                        _refusedLogged[from] = now;
+                        Log.Warn($"Refused a connection from {from}: only the TV ({AllowedPeer}) may watch");
+                    }
                     s.Dispose();
                     continue;
                 }

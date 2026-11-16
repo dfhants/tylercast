@@ -438,7 +438,7 @@ public sealed class AppModel : Observable
     {
         try
         {
-            var psi = new ProcessStartInfo("powershell.exe",
+            var psi = new ProcessStartInfo(Platform.PowerShell,
                 "-NoProfile -NonInteractive -Command \"Get-NetConnectionProfile | Where-Object NetworkCategory -eq 'Public' | ForEach-Object { $_.Name }\"")
             {
                 RedirectStandardOutput = true,
@@ -471,6 +471,10 @@ public sealed class AppModel : Observable
     private void Refresh()
     {
         var state = State;
+        // Any device can answer with a TV's name: two rows with one name show their addresses,
+        // so a look-alike can't pass for the real TV (security review, finding 1).
+        var shared = Tvs.GroupBy(t => t.Name, StringComparer.CurrentCultureIgnoreCase)
+            .Where(g => g.Count() > 1).Select(g => g.Key).ToHashSet(StringComparer.CurrentCultureIgnoreCase);
         foreach (var tv in Tvs)
         {
             var active = tv.Location == _activeLocation;
@@ -496,7 +500,7 @@ public sealed class AppModel : Observable
             else
             {
                 status = TvStatus.Idle;
-                sub = tv.Maker;
+                sub = shared.Contains(tv.Name) ? $"{tv.Tv.Ip} · {tv.Maker} · same name as another device" : tv.Maker;
             }
             var expanded = active || tv.Location == _expanded;
             tv.Update(status, sub, expanded, firewallNote: status == TvStatus.Connecting && (waiting || !_s.FirstCastDone));

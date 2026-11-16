@@ -5,13 +5,19 @@
 
 ROUND_DIR holds index.html, round.ps1 and the files to download (tylercast.exe ...).
 Every URL carries a random token, so only someone given the link can use it.
-The page and the script get the base URL filled in (__BASE__). The PC sends its
+The page and the script get the base URL filled in (__BASE__). Plain HTTP can be tampered
+with by anyone on the network's path, so (security review, finding 2): the script gets the
+SHA-256 of every download (__HASHES__) and checks each before running it, and the page's
+one-liner carries the script's own SHA-256 (__PSHASH__) and refuses to run a script that
+doesn't match. The script hash is printed here too, to be passed on outside the page (in
+chat), so the tester can check the one-liner itself wasn't changed. The PC sends its
 results back with a POST to /<token>/upload?name=<file>; the server saves them to
 RESULTS_DIR and stops once a file named results*.zip has arrived (one round, one-off).
 
 Standard library only; listens on this Mac's LAN address, not on every interface.
 """
 import argparse
+import hashlib
 import http.server
 import os
 import re
@@ -49,6 +55,21 @@ def main():
     files = sorted(f for f in os.listdir(round_dir) if not f.startswith("."))
     done = threading.Event()
 
+    def sha256(path):
+        h = hashlib.sha256()
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(1 << 20), b""):
+                h.update(chunk)
+        return h.hexdigest().upper()
+
+    downloads = {f: sha256(os.path.join(round_dir, f)) for f in files if f not in ("index.html", "round.ps1")}
+    hashes = "; ".join(f"'{f}' = '{h}'" for f, h in downloads.items())
+    script = open(os.path.join(round_dir, "round.ps1"), encoding="utf-8").read()
+    script = script.replace("__BASE__", base).replace("__HASHES__", hashes).strip() + "\n"
+    ps_hash = hashlib.sha256(script.strip().encode("utf-8")).hexdigest().upper()
+    page = open(os.path.join(round_dir, "index.html"), encoding="utf-8").read()
+    page = page.replace("__BASE__", base).replace("__PSHASH__", ps_hash).replace("__PSHASH8__", ps_hash[:8])
+
     class Handler(http.server.BaseHTTPRequestHandler):
         server_version = "TylerCastRound/1"
 
@@ -82,12 +103,10 @@ def main():
             if p is None:
                 return self._send(404, b"not found\n")
             if p in ("/", "/index.html"):
-                html = open(os.path.join(round_dir, "index.html"), encoding="utf-8").read().replace("__BASE__", base)
-                return self._send(200, html.encode(), "text/html; charset=utf-8")
+                return self._send(200, page.encode(), "text/html; charset=utf-8")
             if p == "/round.ps1":
-                ps = open(os.path.join(round_dir, "round.ps1"), encoding="utf-8").read().replace("__BASE__", base)
                 # No BOM: `irm | iex` would try to run it as a command.
-                return self._send(200, ps.encode("utf-8"), "text/plain; charset=utf-8")
+                return self._send(200, script.encode("utf-8"), "text/plain; charset=utf-8")
             m = re.fullmatch(r"/files/([A-Za-z0-9._-]+)", p)
             if m and m.group(1) in files:
                 path = os.path.join(round_dir, m.group(1))
@@ -134,6 +153,7 @@ def main():
 
     srv = http.server.ThreadingHTTPServer((host, a.port), Handler)
     print(f"ROUND PAGE {base}/", flush=True)
+    print(f"ROUND SCRIPT SHA256 {ps_hash}", flush=True)
     print(f"Serving {', '.join(files)} from {round_dir}; results to {results}", flush=True)
     t = threading.Thread(target=srv.serve_forever, daemon=True)
     t.start()

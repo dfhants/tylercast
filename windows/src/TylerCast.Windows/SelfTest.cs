@@ -137,7 +137,7 @@ public static unsafe class Diag
 
     public static string PowerShell(string command)
     {
-        var psi = new ProcessStartInfo("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", command])
+        var psi = new ProcessStartInfo(Platform.PowerShell, ["-NoProfile", "-NonInteractive", "-Command", command])
         {
             RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true,
         };

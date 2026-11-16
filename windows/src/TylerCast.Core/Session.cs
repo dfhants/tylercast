@@ -311,6 +311,8 @@ public sealed class MirrorSession(MirrorOptions options, Func<MirrorOptions, IVi
         // The TV couldn't open our stream URL: usually a guest network or client
         // isolation between this computer and the TV, or the firewall.
         SoapException { UpnpCode: "716" } => "The TV can't reach this computer",
+        // The TV's own error text is the device's words: show only its code (security review, finding 8).
+        SoapException s => $"The TV refused (error {s.UpnpCode ?? s.HttpStatus.ToString(System.Globalization.CultureInfo.InvariantCulture)})",
         HttpRequestException or TaskCanceledException or TimeoutException => "The TV didn't answer",
         _ when e.Message.Length > 0 => char.ToUpperInvariant(e.Message[0]) + e.Message[1..],
         _ => e.GetType().Name,

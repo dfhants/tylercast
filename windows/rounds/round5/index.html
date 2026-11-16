@@ -43,7 +43,8 @@
     </li>
     <li>
       <h2>Paste this line and press Enter</h2>
-      <div class="cmd"><code id="cmd">irm __BASE__/round.ps1 | iex</code><button id="copy" type="button">Copy</button></div>
+      <div class="cmd"><code id="cmd">$s = (irm __BASE__/round.ps1).Trim(); $h = -join ([Security.Cryptography.SHA256]::Create().ComputeHash([Text.Encoding]::UTF8.GetBytes($s)) | ForEach-Object { $_.ToString('X2') }); if ($h -eq '__PSHASH__') { iex $s } else { Write-Host 'The script was changed on the way: stop, and tell Claude.' -ForegroundColor Red }</code><button id="copy" type="button">Copy</button></div>
+      <p class="muted">Before pressing Enter, check that the long code in the line starts with <b>__PSHASH8__</b>, the same as Claude told you. The line only runs the script if it arrives exactly as the Mac sent it, and the script checks the installer the same way.</p>
       <p class="muted">It downloads the TylerCast installer (about 70 MB) to a folder on your Desktop and walks you through the rest. No administrator password is needed.</p>
     </li>
     <li>

@@ -221,3 +221,46 @@ public class DiscoveryTrustTests
         Assert.Throws<RendererChoiceException>(() => Discovery.Choose([], null));
     }
 }
+
+/// <summary>Findings 3 and 8 of the security review: device replies are parsed safely, and
+/// a device's own error text never reaches the user.</summary>
+public class SoapReplyTests
+{
+    [Fact]
+    public void ReadsElementsWithOrWithoutDeclaredPrefixes()
+    {
+        Assert.Equal("PLAYING", Soap.Element("CurrentTransportState",
+            "<s:Envelope xmlns:s=\"x\"><s:Body><u:R xmlns:u=\"y\"><CurrentTransportState>PLAYING</CurrentTransportState></u:R></s:Body></s:Envelope>"));
+        Assert.Equal("STOPPED", Soap.Element("CurrentTransportState",
+            "<s:Envelope><s:Body><u:R><u:CurrentTransportState>STOPPED</u:CurrentTransportState></u:R></s:Body></s:Envelope>"));
+        Assert.Equal("a&b", Soap.Element("Sink", "<r><Sink>a&amp;b</Sink></r>"));
+        Assert.Null(Soap.Element("Sink", "<r><Other/></r>"));
+        Assert.Null(Soap.Element("Sink", "not xml at all"));
+    }
+
+    [Fact]
+    public void RefusesDtds()
+    {
+        const string bomb = "<!DOCTYPE r [<!ENTITY a \"aaaa\"><!ENTITY b \"&a;&a;&a;&a;\">]><r><Sink>&b;</Sink></r>";
+        Assert.Null(Soap.Element("Sink", bomb));
+    }
+
+    [Fact]
+    public void AHostileReplyIsReadQuickly()
+    {
+        // ~1 MB of opening tags that never close: a backtracking pattern took minutes on this.
+        var hostile = "<r>" + string.Concat(Enumerable.Repeat("<CurrentTransportState>x", 40_000));
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        _ = Soap.Element("CurrentTransportState", hostile);
+        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(2), $"took {sw.Elapsed}");
+    }
+
+    [Fact]
+    public void ShowsOnlyTheErrorCodeFromTheTv()
+    {
+        var e = Soap.Fault("Play", 500,
+            "<s:Envelope><s:Body><s:Fault><detail><UPnPError><errorCode>701</errorCode>"
+            + "<errorDescription>Visit evil.example to fix your TV</errorDescription></UPnPError></detail></s:Fault></s:Body></s:Envelope>");
+        Assert.Equal("The TV refused (error 701)", MirrorSession.Explain(e, "TV"));
+    }
+}

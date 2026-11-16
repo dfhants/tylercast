@@ -1,6 +1,6 @@
 using System.Net.Http.Headers;
 using System.Text;
-using System.Text.RegularExpressions;
+using System.Xml;
 
 namespace TylerCast.Core;
 
@@ -23,7 +23,8 @@ public static class Soap
     private static readonly HttpClient Http = new(new HttpClientHandler { AllowAutoRedirect = false })
     {
         Timeout = TimeSpan.FromSeconds(10),
-        MaxResponseContentBufferSize = 1_000_000,
+        // A SOAP reply is a few hundred bytes (GetProtocolInfo's sink list a few kB).
+        MaxResponseContentBufferSize = 64 * 1024,
     };
 
     /// <summary>Escapes as Python's html.escape(quote=True), which mirror.py used.</summary>
@@ -71,12 +72,31 @@ public static class Soap
         + $"<res protocolInfo=\"{Escape(protocolInfo)}\">{Escape(url)}</res>"
         + "</item></DIDL-Lite>";
 
-    /// <summary>Text of the first &lt;name&gt;…&lt;/name&gt; (any namespace prefix), unescaped.</summary>
+    /// <summary>
+    /// Text of the first &lt;name&gt; element (any namespace prefix), unescaped; null if absent or
+    /// the reply isn't XML. Read with a plain XML reader in one pass: a pattern match over device
+    /// text could be made to take minutes (security review, finding 3). Prefixes are matched by
+    /// name only (no namespace processing), as some renderers leave them undeclared.
+    /// </summary>
     public static string? Element(string name, string xml)
     {
-        var n = Regex.Escape(name);
-        var m = Regex.Match(xml, $@"<(?:[A-Za-z0-9_]+:)?{n}(?:\s[^>]*)?>(.*?)</(?:[A-Za-z0-9_]+:)?{n}>", RegexOptions.Singleline);
-        return m.Success ? Unescape(m.Groups[1].Value) : null;
+        try
+        {
+            using var r = new XmlTextReader(new StringReader(xml))
+            {
+                Namespaces = false,
+                DtdProcessing = DtdProcessing.Prohibit,
+                XmlResolver = null,
+            };
+            while (r.Read())
+            {
+                if (r.NodeType != XmlNodeType.Element) continue;
+                var local = r.Name.Contains(':') ? r.Name[(r.Name.IndexOf(':') + 1)..] : r.Name;
+                if (local == name) return r.IsEmptyElement ? "" : r.ReadElementContentAsString();
+            }
+        }
+        catch (XmlException) { }
+        return null;
     }
 
     public static SoapException Fault(string action, int status, string body) =>
@@ -94,18 +114,18 @@ public static class Soap
         req.Headers.ExpectContinue = false;
         Action<string> note = quiet ? Log.Debug : Log.Info;
         note($"SOAP -> {action} {url}");
-        Log.Debug($"SOAP request body:\n{env}");
+        Log.Debug($"SOAP request body:\n{Log.Body(env)}");
         using var resp = await Http.SendAsync(req, ct).ConfigureAwait(false);
         var status = (int)resp.StatusCode;
         var body = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
         if (status is < 200 or >= 300)
         {
             var e = Fault(action, status, body);
-            Log.Error($"SOAP <- {action} HTTP {status}  UPnP error {e.UpnpCode ?? "?"} {e.UpnpDescription ?? ""}\n{body}");
+            Log.Error($"SOAP <- {action} HTTP {status}  UPnP error {e.UpnpCode ?? "?"} {e.UpnpDescription ?? ""}\n{Log.Body(body)}");
             throw e;
         }
         note($"SOAP <- {action} HTTP {status}");
-        Log.Debug($"SOAP reply:\n{body}");
+        Log.Debug($"SOAP reply:\n{Log.Body(body)}");
         return body;
     }
 }

@@ -85,7 +85,7 @@ public static class Ssdp
             if (n <= 0) continue;
             var ip = ((IPEndPoint)from).Address.ToString();
             var text = Encoding.UTF8.GetString(buf, 0, n);
-            Log.Debug($"SSDP response from {ip}:\n{text.Trim()}");
+            Log.Debug($"SSDP response from {ip}:\n{Log.Body(text, 1024)}");
             var r = ParseResponse(text, ip);
             if (r is null || !seen.Add(r.Location)) continue;
             Log.Info($"SSDP: {ip} {r.Location} ({r.Server})");

@@ -94,13 +94,17 @@ public static class DeviceDescription
         if (!IsOnDevice(url, hit.Ip))
             throw new DeviceDescriptionException($"LOCATION {hit.Location} is not plain http on {hit.Ip}, the address that answered");
         var data = await Http.GetByteArrayAsync(url, ct).ConfigureAwait(false);
-        Log.Debug($"Device description {hit.Location}:\n{System.Text.Encoding.UTF8.GetString(data)}");
+        Log.Debug($"Device description {hit.Location}:\n{Log.Body(System.Text.Encoding.UTF8.GetString(data))}");
         return Parse(data, hit.Location, hit.Ip);
     }
 }
 
 public static class Discovery
 {
+    public const int MaxParallelFetches = 4, MaxAnswersPerIp = 4, MaxAnswers = 32;
+    /// <summary>Seconds after listening ends that descriptions may still take.</summary>
+    public const double DescriptionWait = 6;
+
     /// <summary>
     /// The renderer <paramref name="want"/> names: an exact IP, or a name that only one renderer
     /// has (null: the only renderer). Any device can answer SSDP with any name, so an
@@ -132,23 +136,57 @@ public static class Discovery
             catch (Exception e) { Log.Error($"SSDP search failed: {e.Message}"); }
             finally { answers.Writer.TryComplete(); }
         }, ct);
+        // Any device can answer, as often as it likes (security review, finding 4): descriptions
+        // are fetched a few at a time, at most a few per address and a few dozen in all, and
+        // the whole search ends a few seconds after listening does.
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        deadline.CancelAfter(TimeSpan.FromSeconds(timeout + DescriptionWait));
+        var slots = new SemaphoreSlim(MaxParallelFetches);
+        var perIp = new Dictionary<string, int>();
         var output = new List<Renderer>();
-        await foreach (var h in answers.Reader.ReadAllAsync(ct).ConfigureAwait(false))
+        var fetches = new List<Task>();
+        var total = 0;
+        try
+        {
+            await foreach (var h in answers.Reader.ReadAllAsync(deadline.Token).ConfigureAwait(false))
+            {
+                var n = perIp.GetValueOrDefault(h.Ip);
+                if (n >= MaxAnswersPerIp || total >= MaxAnswers)
+                {
+                    if (n == MaxAnswersPerIp || total == MaxAnswers) Log.Warn($"Ignoring further SSDP answers ({h.Ip} sent {n + 1}, {total + 1} in all)");
+                    perIp[h.Ip] = n + 1;
+                    total++;
+                    continue;
+                }
+                perIp[h.Ip] = n + 1;
+                total++;
+                fetches.Add(Fetch(h));
+            }
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested) { }
+        await Task.WhenAll(fetches).ConfigureAwait(false);
+        lock (output) return [.. output];
+
+        async Task Fetch(SsdpResponse h)
         {
             try
             {
-                var r = await DeviceDescription.FetchAsync(h, ct).ConfigureAwait(false);
-                var names = r.Services.Keys.Select(k => k.Split(':') is var p && p.Length >= 2 ? p[^2] : k).Order();
-                Log.Info($"Renderer: {r.Name} [{r.Model}] at {r.Ip} services=[{string.Join(", ", names)}]");
-                if (r.AVTransport is null) continue;
-                output.Add(r);
-                if (onFound is not null) await onFound(r).ConfigureAwait(false);
+                await slots.WaitAsync(deadline.Token).ConfigureAwait(false);
+                try
+                {
+                    var r = await DeviceDescription.FetchAsync(h, deadline.Token).ConfigureAwait(false);
+                    var names = r.Services.Keys.Select(k => k.Split(':') is var p && p.Length >= 2 ? p[^2] : k).Order();
+                    Log.Info($"Renderer: {r.Name} [{r.Model}] at {r.Ip} services=[{string.Join(", ", names)}]");
+                    if (r.AVTransport is null) return;
+                    lock (output) output.Add(r);
+                    if (onFound is not null) await onFound(r).ConfigureAwait(false);
+                }
+                finally { slots.Release(); }
             }
-            catch (Exception e) when (e is HttpRequestException or TaskCanceledException or DeviceDescriptionException or WebException)
+            catch (Exception e) when (e is HttpRequestException or OperationCanceledException or DeviceDescriptionException or WebException)
             {
-                Log.Warn($"Could not read {h.Location}: {e.Message}");
+                if (!ct.IsCancellationRequested) Log.Warn($"Could not read {h.Location}: {e.Message}");
             }
         }
-        return output;
     }
 }

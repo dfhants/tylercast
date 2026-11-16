@@ -10,6 +10,11 @@ public static class Platform
 {
     public static readonly Version Minimum = new(10, 0, 19041);
 
+    /// <summary>Windows PowerShell by full path: a bare name is looked for in the app's folder
+    /// and the current folder first (security review, finding 7).</summary>
+    public static string PowerShell { get; } =
+        Path.Combine(Environment.SystemDirectory, "WindowsPowerShell", "v1.0", "powershell.exe");
+
     /// <summary>
     /// Call first. Checks the Windows version, makes the process per-monitor DPI aware
     /// (so a laptop at 125-150% scaling is captured at its real resolution), and asks
