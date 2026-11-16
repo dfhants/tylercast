@@ -262,7 +262,7 @@ public static class SelfTest
     private static void PipelineCheck(Report r, string dir, MirrorOptions.AudioKind wanted)
     {
         var audio = Platform.Resolve(wanted);
-        var o = new MirrorOptions { Audio = audio, SoundOnTvOnly = false };
+        var o = new MirrorOptions { Audio = audio, SoundOnTvOnly = false, Delay = 0.2 };
         var p = new Pipeline(o, new WindowsVideoSource(o), o.CapturesSound ? new WindowsAudioSource(o.Codec, muteComputer: false) : null);
         var file = $"pipeline-{MirrorOptions.Name(wanted)}.ts";
         long bytes = 0;

@@ -281,7 +281,9 @@ public sealed unsafe class MfH264Encoder : IDisposable
             (typeof(CODECAPI_AVLowLatencyMode).GUID, true, "low latency"),
             (typeof(CODECAPI_AVEncCommonRateControlMode).GUID, (uint)eAVEncCommonRateControlMode.eAVEncCommonRateControlMode_CBR, "CBR"),
             (typeof(CODECAPI_AVEncCommonMeanBitRate).GUID, (uint)v.Bitrate, "mean bit rate"),
-            (typeof(CODECAPI_AVEncCommonBufferSize).GUID, (uint)(v.Bitrate * v.RateWindow), "buffer size"),
+            // A quarter second of bits: keyframes stay small enough to send in time. With the
+            // half-second buffer Microsoft's encoder made 371 kB keyframes (148ms at 20 Mbit/s).
+            (typeof(CODECAPI_AVEncCommonBufferSize).GUID, (uint)(v.Bitrate * v.RateWindow / 2), "buffer size"),
             (typeof(CODECAPI_AVEncMPVGOPSize).GUID, gop, "GOP size"),
             (typeof(CODECAPI_AVEncMPVDefaultBPictureCount).GUID, 0u, "no B-frames"),
             (typeof(CODECAPI_AVEncCommonQualityVsSpeed).GUID, 50u, "quality/speed"),

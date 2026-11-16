@@ -126,7 +126,12 @@ MirrorOptions Options()
         MarginPercent = Number("--margin", 0),
         Video = values.TryGetValue("--bitrate", out var b) ? o.Video with { Bitrate = Rate(b) } : o.Video,
         MuxRate = values.TryGetValue("--muxrate", out var m) ? Rate(m) : o.MuxRate,
+#if WINDOWS
+        // 50ms more slack than the Mac: Windows' encoders burst bigger keyframes (CI, round 1).
+        Delay = Number("--delay", 0.2),
+#else
         Delay = Number("--delay", o.Delay),
+#endif
         Mime = values.GetValueOrDefault("--mime", o.Mime),
         Port = (int)Number("--port", o.Port),
         TestPattern = flags.Contains("--test-pattern"),
