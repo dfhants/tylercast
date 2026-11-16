@@ -45,9 +45,22 @@ public static class Platform
     /// (none when the audio driver is missing or the only device is unplugged) and an encoder
     /// for the codec. Otherwise the TV gets the silent AC-3 track, so the picture still works.
     /// </summary>
+    /// <summary>Capture-to-DTS slack. Video alone fits in 0.2s; captured sound runs up to ~0.38s
+    /// behind (loopback packets plus the AAC encoder's look-ahead; round 2), so it gets 0.45s.
+    /// The TV buffers a second or more anyway, so this adds no delay anyone notices.</summary>
+    public static double DelayFor(MirrorOptions.AudioKind audio) =>
+        audio is MirrorOptions.AudioKind.Aac or MirrorOptions.AudioKind.Ac3 ? 0.45 : 0.2;
+
     public static MirrorOptions.AudioKind Resolve(MirrorOptions.AudioKind wanted)
     {
         if (wanted is not (MirrorOptions.AudioKind.Ac3 or MirrorOptions.AudioKind.Aac)) return wanted;
+        if (wanted == MirrorOptions.AudioKind.Ac3)
+        {
+            // Windows' Dolby Digital encoder ends the calling process (0xC0000409) however it is
+            // set up (rounds 1 and 2, test laptop): it is for Windows' own apps. AAC plays on the TV.
+            Log.Warn("Windows' AC-3 encoder can't be used by other apps: sending AAC sound instead");
+            wanted = MirrorOptions.AudioKind.Aac;
+        }
         try { using var l = new Loopback(); }
         catch (Exception e)
         {
@@ -56,12 +69,6 @@ public static class Platform
         }
         var codec = wanted == MirrorOptions.AudioKind.Aac ? AudioCodec.Aac : AudioCodec.Ac3;
         if (MfAudioEncoder.Available(codec).Count > 0) return wanted;
-        var other = codec == AudioCodec.Aac ? MirrorOptions.AudioKind.Ac3 : MirrorOptions.AudioKind.Aac;
-        if (MfAudioEncoder.Available(codec == AudioCodec.Aac ? AudioCodec.Ac3 : AudioCodec.Aac).Count > 0)
-        {
-            Log.Warn($"No {codec} encoder on this PC: using {MirrorOptions.Name(other)} instead");
-            return other;
-        }
         Log.Warn("No audio encoder on this PC (Windows N edition?): sending a silent track instead");
         return MirrorOptions.AudioKind.SilentAc3;
     }

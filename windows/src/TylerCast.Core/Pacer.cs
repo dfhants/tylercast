@@ -166,6 +166,7 @@ public sealed class Pacer(TsMuxer muxer, Broadcaster broadcaster, double delay)
         static string Ms(double v) => double.IsFinite(v) ? v.ToString("0", CultureInfo.InvariantCulture) + "ms" : "-";
         return $"TS 10s: {s.VideoFrames} video frames ({s.Keyframes} key), {s.AudioFrames} audio, "
             + $"late {s.LateFrames}, min slack {Ms(s.MinSlackMs)} (keyframes {Ms(s.MinKeyframeSlackMs)}), "
+            + (s.AudioFrames > 0 ? $"audio late {s.LateAudioFrames}, min slack {Ms(s.MinAudioSlackMs)}, " : "")
             + $"max queue {s.MaxQueuedPackets} pkts, padding {(s.Packets > 0 ? 100 * s.NullPackets / s.Packets : 0)}%";
     }
 
@@ -173,6 +174,7 @@ public sealed class Pacer(TsMuxer muxer, Broadcaster broadcaster, double delay)
     {
         var msg = Describe(s);
         if (s.LateFrames > 0) Log.Warn(msg + "  <- late frames: raise --delay or --muxrate, or lower --bitrate");
+        else if (s.LateAudioFrames > 0) Log.Warn(msg + "  <- late audio: raise --delay");
         else Log.Info(msg);
     }
 }

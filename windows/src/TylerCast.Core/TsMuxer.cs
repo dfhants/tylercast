@@ -42,16 +42,20 @@ public sealed class TsMuxer
         public int VideoFrames;
         public int AudioFrames;
         public int Keyframes;
-        /// <summary>Frames whose last packet left after PCR had passed their DTS.</summary>
+        /// <summary>Video frames whose last packet left after PCR had passed their DTS.</summary>
         public int LateFrames;
-        /// <summary>Smallest DTS − PCR at a frame's last packet, in milliseconds.</summary>
+        /// <summary>Audio frames likewise (counted apart: their lateness comes from capture and
+        /// the audio encoder, not the video bit rate).</summary>
+        public int LateAudioFrames;
+        /// <summary>Smallest DTS − PCR at a video frame's last packet, in milliseconds.</summary>
         public double MinSlackMs;
         public double MinKeyframeSlackMs;
+        public double MinAudioSlackMs;
         public int MaxQueuedPackets;
         public int NullPackets;
         public int Packets;
 
-        public static Stats Empty => new() { MinSlackMs = double.PositiveInfinity, MinKeyframeSlackMs = double.PositiveInfinity };
+        public static Stats Empty => new() { MinSlackMs = double.PositiveInfinity, MinKeyframeSlackMs = double.PositiveInfinity, MinAudioSlackMs = double.PositiveInfinity };
     }
 
     private abstract record Queued;
@@ -215,13 +219,15 @@ public sealed class TsMuxer
                 _stats.Keyframes++;
                 _stats.MinKeyframeSlackMs = Math.Min(_stats.MinKeyframeSlackMs, slackMs);
             }
+            _stats.MinSlackMs = Math.Min(_stats.MinSlackMs, slackMs);
+            if (slackMs < 0) _stats.LateFrames++;
         }
         else
         {
             _stats.AudioFrames++;
+            _stats.MinAudioSlackMs = Math.Min(_stats.MinAudioSlackMs, slackMs);
+            if (slackMs < 0) _stats.LateAudioFrames++;
         }
-        _stats.MinSlackMs = Math.Min(_stats.MinSlackMs, slackMs);
-        if (slackMs < 0) _stats.LateFrames++;
     }
 
     private void ScheduleTables()

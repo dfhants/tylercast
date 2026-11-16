@@ -187,6 +187,11 @@ public class TsMuxerTests
         _ = m.Produce(7000);
         var s2 = m.TakeStats();
         Assert.True(s2.LateFrames == 0 && s2.MinSlackMs > 100);
+        // A late audio frame counts as late audio, not as a late video frame.
+        m.EnqueueAudio(new byte[768], m.Now90);
+        _ = m.Produce(50);
+        var s3 = m.TakeStats();
+        Assert.True(s3.LateFrames == 0 && s3.LateAudioFrames == 1 && s3.MinAudioSlackMs < 0);
     }
 
     [Fact]

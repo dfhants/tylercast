@@ -164,7 +164,7 @@ public static class SelfTest
         r.Line($"TylerCast selftest {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
         var parts = new List<string> { "diag", "discovery" };
         parts.AddRange(EncoderPicker.List().Select(e => $"encoder:{e.Index}"));
-        parts.AddRange(["capture:dxgi", "capture:gdi", "loopback", "audio:Ac3", "audio:Aac", "pipeline:aac", "pipeline:ac3"]);
+        parts.AddRange(["capture:dxgi", "capture:gdi", "loopback", "audio:Aac", "pipeline:aac"]);
         foreach (var part in parts)
         {
             var psi = new ProcessStartInfo(Environment.ProcessPath!, ["selftest-part", part, dir, tone ? "tone" : "no-tone"])
@@ -262,7 +262,7 @@ public static class SelfTest
     private static void PipelineCheck(Report r, string dir, MirrorOptions.AudioKind wanted)
     {
         var audio = Platform.Resolve(wanted);
-        var o = new MirrorOptions { Audio = audio, SoundOnTvOnly = false, Delay = 0.2 };
+        var o = new MirrorOptions { Audio = audio, SoundOnTvOnly = false, Delay = Platform.DelayFor(audio) };
         var p = new Pipeline(o, new WindowsVideoSource(o), o.CapturesSound ? new WindowsAudioSource(o.Codec, muteComputer: false) : null);
         var file = $"pipeline-{MirrorOptions.Name(wanted)}.ts";
         long bytes = 0;
@@ -277,8 +277,8 @@ public static class SelfTest
             p.Stop();
         }
         var s = p.Pacer.LastStats;
-        var frames = s is { } st ? $"{st.VideoFrames} video frames in 10s (25fps = 250), {st.AudioFrames} audio, {st.LateFrames} late" : "no stats";
-        r.Result($"pipeline {MirrorOptions.Name(wanted)}", failed is null && bytes > 10_000_000 && s is { LateFrames: 0, VideoFrames: > 230 },
+        var frames = s is { } st ? $"{st.VideoFrames} video frames in 10s (25fps = 250), {st.AudioFrames} audio, {st.LateFrames} video and {st.LateAudioFrames} audio late (worst audio slack {st.MinAudioSlackMs:0}ms)" : "no stats";
+        r.Result($"pipeline {MirrorOptions.Name(wanted)}", failed is null && bytes > 10_000_000 && s is { LateFrames: 0, LateAudioFrames: 0, VideoFrames: > 230 },
             $"{bytes / 1_000_000.0:0.0} MB ({MirrorOptions.Name(audio)}); {frames}; {failed ?? "no failures"}; file {file}");
     }
 

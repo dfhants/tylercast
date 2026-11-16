@@ -127,8 +127,8 @@ MirrorOptions Options()
         Video = values.TryGetValue("--bitrate", out var b) ? o.Video with { Bitrate = Rate(b) } : o.Video,
         MuxRate = values.TryGetValue("--muxrate", out var m) ? Rate(m) : o.MuxRate,
 #if WINDOWS
-        // 50ms more slack than the Mac: Windows' encoders burst bigger keyframes (CI, round 1).
-        Delay = Number("--delay", 0.2),
+        // More slack than the Mac: bigger keyframes, and captured sound lags (rounds 1 and 2).
+        Delay = Number("--delay", Platform.DelayFor(audio)),
 #else
         Delay = Number("--delay", o.Delay),
 #endif

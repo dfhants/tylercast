@@ -44,7 +44,7 @@ public sealed class PcmTimeline(int blockSamples, Action<float[], double> onBloc
     /// Fills silence up to <paramref name="host"/> − <paramref name="lag"/> when no sound has arrived, so
     /// the TV always gets a continuous audio track. Call every few tens of milliseconds.
     /// </summary>
-    public void PadSilence(double host, double lag = 0.1)
+    public void PadSilence(double host, double lag = 0.05)
     {
         lock (_gate)
         {

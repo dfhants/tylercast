@@ -158,16 +158,16 @@ public class PcmTimelineTests
     {
         var times = new List<double>();
         var t = new PcmTimeline(1536, (_, s) => times.Add(s));
-        t.PadSilence(10.0); // anchors at 9.9
+        t.PadSilence(10.0); // anchors at 9.95 (50ms lag)
         for (var i = 1; i <= 50; i++) t.PadSilence(10.0 + i * 0.02); // 1s of quiet
-        var host = 10.9 + 0.03; // sound arrives 30ms off where the padding got to
+        var host = 10.95 + 0.03; // sound arrives 30ms off where the padding got to
         for (var i = 0; i < 100; i++)
         {
             t.Push(Pcm.Sine(440, 0.01), host);
             host += 0.01;
         }
         Assert.True(times.Count > 55);
-        Assert.Equal(9.9, times[0], 9);
+        Assert.Equal(9.95, times[0], 9);
         foreach (var (a, b) in times.Zip(times.Skip(1))) Assert.Equal(1536.0 / 48000, b - a, 9);
     }
 

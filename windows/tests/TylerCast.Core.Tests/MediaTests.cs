@@ -129,9 +129,9 @@ public class PacerTests
     public void StatsLineReadsLikeTheMacApp()
     {
         var s = TsMuxer.Stats.Empty;
-        s.VideoFrames = 248; s.Keyframes = 5; s.AudioFrames = 313; s.MinSlackMs = 209.4; s.MinKeyframeSlackMs = 209.4;
+        s.VideoFrames = 248; s.Keyframes = 5; s.AudioFrames = 313; s.MinSlackMs = 209.4; s.MinKeyframeSlackMs = 209.4; s.MinAudioSlackMs = 151.2;
         s.MaxQueuedPackets = 1153; s.NullPackets = 79; s.Packets = 100;
-        Assert.Equal("TS 10s: 248 video frames (5 key), 313 audio, late 0, min slack 209ms (keyframes 209ms), "
+        Assert.Equal("TS 10s: 248 video frames (5 key), 313 audio, late 0, min slack 209ms (keyframes 209ms), audio late 0, min slack 151ms, "
             + "max queue 1153 pkts, padding 79%", Pacer.Describe(s));
     }
 }
