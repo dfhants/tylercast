@@ -26,4 +26,5 @@ case "$builds" in *cli*) pub TylerCast.Cli tylercast.exe "-f net10.0-windows" ;;
 case "$builds" in *app*) pub TylerCast.App TylerCast.exe ;; esac
 cp "$src"/*.html "$src"/*.ps1 "$out/"
 echo "Round $n: $(ls "$out" | tr '\n' ' ')"
-exec python3 tools/round-server.py "$out" "results/round$n" --port "${PORT:-8765}"
+# TOKEN=... reuses an earlier round's page address, so the same link keeps working.
+exec python3 tools/round-server.py "$out" "results/round$n" --port "${PORT:-8765}" ${TOKEN:+--token "$TOKEN"}
