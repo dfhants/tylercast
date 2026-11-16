@@ -34,7 +34,7 @@ click your TV and it's on.
 
 To remove it: **Settings > Apps > Installed apps > TylerCast > Uninstall**.
 
-### macOS 14 (Sonoma) or later
+### macOS 14 (Sonoma) or later, on Apple silicon (M1 or later)
 
 1. Download **`TylerCast-mac-<version>.zip`**, open it, and drag **TylerCast.app** into
    **Applications**.

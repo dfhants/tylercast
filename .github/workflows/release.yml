@@ -110,7 +110,7 @@ jobs:
               echo "## Download"
               echo
               echo "- **Windows 10 (2004 or later) / 11:** \`$f\`. Not code-signed yet: if Windows says *Windows protected your PC*, click **More info**, then **Run anyway**."
-              echo "- **macOS 14 or later:** \`TylerCast-mac-<version>.zip\` (added when the Mac build finishes). Not signed by Apple yet: right-click TylerCast.app, choose **Open**, then **Open** (or **System Settings > Privacy & Security > Open Anyway**)."
+              echo "- **macOS 14 or later, Apple silicon:** \`TylerCast-mac-<version>.zip\` (added when the Mac build finishes). Not signed by Apple yet: right-click TylerCast.app, choose **Open**, then **Open** (or **System Settings > Privacy & Security > Open Anyway**)."
               echo
               echo "(GitHub adds the *Source code* files to every release; you don't need them.)"
               echo
