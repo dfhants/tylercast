@@ -85,7 +85,8 @@ def main():
                 return self._send(200, html.encode(), "text/html; charset=utf-8")
             if p == "/round.ps1":
                 ps = open(os.path.join(round_dir, "round.ps1"), encoding="utf-8").read().replace("__BASE__", base)
-                return self._send(200, ps.encode("utf-8")  # no BOM: `irm | iex` would run it as a command, "text/plain; charset=utf-8")
+                # No BOM: `irm | iex` would try to run it as a command.
+                return self._send(200, ps.encode("utf-8"), "text/plain; charset=utf-8")
             m = re.fullmatch(r"/files/([A-Za-z0-9._-]+)", p)
             if m and m.group(1) in files:
                 path = os.path.join(round_dir, m.group(1))

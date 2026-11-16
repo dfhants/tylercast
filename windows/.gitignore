@@ -5,3 +5,4 @@ results/
 *.user
 test-results/
 ci-selftest/
+ci-screenshots/
