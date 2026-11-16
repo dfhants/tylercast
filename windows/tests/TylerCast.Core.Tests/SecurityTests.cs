@@ -6,7 +6,7 @@ using TylerCast.Core;
 namespace TylerCast.Core.Tests;
 
 /// <summary>
-/// Ported from the Swift StreamAccessTests and DiscoveryTrustTests (commit f73a5f2,
+/// Ported from the Swift StreamAccessTests and DiscoveryTrustTests (commit a3abb95,
 /// "Only the TV can watch the stream; trust discovery less"), plus the .NET-side
 /// additions: no redirects, no DTDs, and choosing a renderer unambiguously.
 /// </summary>

@@ -124,7 +124,7 @@ public class SessionTests
         Assert.Equal([true, false], awake);
     }
 
-    /// <summary>Ported behaviour from f73a5f2: a TV that stops answering ends the session after 3 missed checks.</summary>
+    /// <summary>Ported behaviour from a3abb95: a TV that stops answering ends the session after 3 missed checks.</summary>
     [Fact]
     public async Task StopsAfterThreeMissedStateChecks()
     {
