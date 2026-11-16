@@ -1,6 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <!-- Discovery, SOAP, HTTP server, TS muxer, pacer: no platform code. -->
+  <!-- Discovery, SOAP, HTTP server, TS muxer, pacer, session: no platform code. -->
   <ItemGroup>
     <InternalsVisibleTo Include="TylerCast.Core.Tests" />
+    <!-- Made by tools/make-test-clip.sh; see ClipVideoSource. -->
+    <EmbeddedResource Include="Resources\TestPattern.h264" LogicalName="TestPattern.h264" />
   </ItemGroup>
 </Project>
