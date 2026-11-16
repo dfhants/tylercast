@@ -273,32 +273,19 @@ internal sealed class TrayHost
     }
 
     /// <summary>
-    /// A TV glyph in the taskbar's text colour; in the accent colour while casting; with an
-    /// orange dot after a failure. Drawn at the tray's icon size, so it stays sharp at any scaling.
+    /// The Mac menu bar's glyph (a screen on a stand with a T) in the taskbar's text colour,
+    /// filled in the accent colour while casting, with "!" after a failure. Drawn at the tray's
+    /// icon size, so it stays sharp at any scaling.
     /// </summary>
     private void UpdateIcon()
     {
         // The session's "stopped" arrives after Exit has removed the icon (round 4).
         if (_exiting) return;
         var light = WinTheme.TaskbarLight;
-        var colour = _model.IsActive ? WinTheme.Accent(light) : light ? Drawing.Color.Black : Drawing.Color.White;
-        var size = Forms.SystemInformation.SmallIconSize.Width;
-        using var bmp = new Drawing.Bitmap(size, size);
-        using (var g = Drawing.Graphics.FromImage(bmp))
-        {
-            g.SmoothingMode = Drawing.Drawing2D.SmoothingMode.AntiAlias;
-            g.TextRenderingHint = Drawing.Text.TextRenderingHint.AntiAliasGridFit;
-            using var font = IconFont(size * 0.9f);
-            using var brush = new Drawing.SolidBrush(colour);
-            using var format = new Drawing.StringFormat { Alignment = Drawing.StringAlignment.Center, LineAlignment = Drawing.StringAlignment.Center };
-            g.DrawString("", font, brush, new Drawing.RectangleF(0, 0, size, size), format);
-            if (_model.HasError)
-            {
-                using var dot = new Drawing.SolidBrush(Drawing.Color.FromArgb(0xF7, 0x63, 0x0C));
-                var d = size * 0.45f;
-                g.FillEllipse(dot, size - d, size - d, d, d);
-            }
-        }
+        var glyph = _model.HasError ? TrayGlyph.Error : _model.IsCasting ? TrayGlyph.Casting
+            : _model.IsActive ? TrayGlyph.Connecting : TrayGlyph.Idle;
+        var colour = glyph == TrayGlyph.Casting ? WinTheme.Accent(light) : light ? Drawing.Color.Black : Drawing.Color.White;
+        using var bmp = TrayGlyphs.Draw(glyph, colour, Forms.SystemInformation.SmallIconSize.Width);
         var old = _hicon;
         _hicon = bmp.GetHicon();
         _icon.Icon = Drawing.Icon.FromHandle(_hicon);
@@ -306,15 +293,68 @@ internal sealed class TrayHost
         var text = _model.TrayText;
         _icon.Text = text.Length > 120 ? text[..120] : text;
     }
+}
 
-    private static Drawing.Font IconFont(float px)
+internal enum TrayGlyph { Idle, Connecting, Casting, Error }
+
+/// <summary>The tray glyph, drawn as Sources/TylerCast/Icon.swift draws the Mac's (18-unit grid, y down here).</summary>
+internal static class TrayGlyphs
+{
+    public static Drawing.Bitmap Draw(TrayGlyph g, Drawing.Color colour, int size)
     {
-        foreach (var name in new[] { "Segoe Fluent Icons", "Segoe MDL2 Assets" })
+        var bmp = new Drawing.Bitmap(size, size, Drawing.Imaging.PixelFormat.Format32bppPArgb);
+        using var gr = Drawing.Graphics.FromImage(bmp);
+        gr.SmoothingMode = Drawing.Drawing2D.SmoothingMode.AntiAlias;
+        gr.PixelOffsetMode = Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+        var k = size / 18f;
+        gr.ScaleTransform(k, k);
+        var c = g == TrayGlyph.Connecting ? Drawing.Color.FromArgb(128, colour) : colour;
+        using var brush = new Drawing.SolidBrush(c);
+        // Stand: neck and foot.
+        gr.FillRectangle(brush, 8.25f, 13.0f, 1.5f, 2.4f);
+        using (var foot = Rounded(5.5f, 15.0f, 7f, 1.4f, 0.7f)) gr.FillPath(brush, foot);
+        using var screen = Rounded(1.25f, 2.25f, 15.5f, 11f, 2.2f);
+        using var mark = g == TrayGlyph.Error ? Bang() : LetterT();
+        if (g == TrayGlyph.Casting)
         {
-            var f = new Drawing.Font(name, px, Drawing.GraphicsUnit.Pixel);
-            if (f.Name == name) return f;
-            f.Dispose();
+            // Filled screen with the T cut out of it.
+            using var region = new Drawing.Region(screen);
+            region.Exclude(mark);
+            gr.FillRegion(brush, region);
         }
-        return new Drawing.Font(Drawing.SystemFonts.DefaultFont.FontFamily, px, Drawing.GraphicsUnit.Pixel);
+        else
+        {
+            using var pen = new Drawing.Pen(c, 1.5f);
+            gr.DrawPath(pen, screen);
+            gr.FillPath(brush, mark);
+        }
+        return bmp;
+    }
+
+    private static Drawing.Drawing2D.GraphicsPath LetterT()
+    {
+        var p = Rounded(5.0f, 4.5f, 8f, 1.9f, 0.5f);
+        using var stem = Rounded(8.05f, 5.5f, 1.9f, 5.6f, 0.5f);
+        p.AddPath(stem, false);
+        return p;
+    }
+
+    private static Drawing.Drawing2D.GraphicsPath Bang()
+    {
+        var p = Rounded(8.1f, 4.0f, 1.8f, 4.6f, 0.6f);
+        p.AddEllipse(8.05f, 9.4f, 1.9f, 1.9f);
+        return p;
+    }
+
+    private static Drawing.Drawing2D.GraphicsPath Rounded(float x, float y, float w, float h, float r)
+    {
+        var p = new Drawing.Drawing2D.GraphicsPath();
+        var d = 2 * r;
+        p.AddArc(x, y, d, d, 180, 90);
+        p.AddArc(x + w - d, y, d, d, 270, 90);
+        p.AddArc(x + w - d, y + h - d, d, d, 0, 90);
+        p.AddArc(x, y + h - d, d, d, 90, 90);
+        p.CloseFigure();
+        return p;
     }
 }

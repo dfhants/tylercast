@@ -11,6 +11,8 @@
     <AssemblyName>TylerCast</AssemblyName>
     <RootNamespace>TylerCast.App</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- Made from the Mac app's icon by tools/make-icon.py: one design for both. -->
+    <ApplicationIcon>TylerCast.ico</ApplicationIcon>
     <!-- CA1416: version checked at start-up. WPF0001: ThemeMode (Windows 11 Fluent styles) is marked experimental. -->
     <NoWarn>$(NoWarn);CA1416;WPF0001</NoWarn>
   </PropertyGroup>
@@ -18,6 +20,9 @@
     <!-- WPF and Windows Forms both have Application, Button, ...: only WPF's are imported. -->
     <Using Remove="System.Windows.Forms" />
     <Using Remove="System.Drawing" />
+  </ItemGroup>
+  <ItemGroup>
+    <Resource Include="TylerCast.ico" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\TylerCast.Core\TylerCast.Core.csproj" />

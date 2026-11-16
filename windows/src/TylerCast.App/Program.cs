@@ -96,8 +96,37 @@ internal static class Screenshots
             }
             catch (Exception e) { failures++; Console.Error.WriteLine($"{name}-settings: {e}"); }
         }
+        try { TrayPreview(Path.Combine(dir, "8-tray-icons.png")); }
+        catch (Exception e) { failures++; Console.Error.WriteLine($"tray icons: {e}"); }
         Console.WriteLine($"Screenshots in {dir}: {Directory.GetFiles(dir, "*.png").Length} files, {failures} failed");
         return failures == 0 ? 0 : 1;
+    }
+
+    /// <summary>The tray glyph in each state at 16, 24 and 32 px, on a light and a dark taskbar.</summary>
+    private static void TrayPreview(string file)
+    {
+        var sizes = new[] { 16, 24, 32 };
+        var states = Enum.GetValues<TrayGlyph>();
+        using var sheet = new System.Drawing.Bitmap(states.Length * 120, 2 * 60);
+        using var g = System.Drawing.Graphics.FromImage(sheet);
+        for (var row = 0; row < 2; row++)
+        {
+            var light = row == 0;
+            using var bg = new System.Drawing.SolidBrush(light ? System.Drawing.Color.FromArgb(0xF3, 0xF3, 0xF3) : System.Drawing.Color.FromArgb(0x20, 0x20, 0x20));
+            g.FillRectangle(bg, 0, row * 60, sheet.Width, 60);
+            for (var i = 0; i < states.Length; i++)
+            {
+                var colour = states[i] == TrayGlyph.Casting ? WinTheme.Accent(light) : light ? System.Drawing.Color.Black : System.Drawing.Color.White;
+                var x = i * 120 + 8;
+                foreach (var s in sizes)
+                {
+                    using var b = TrayGlyphs.Draw(states[i], colour, s);
+                    g.DrawImageUnscaled(b, x, row * 60 + (60 - s) / 2);
+                    x += s + 6;
+                }
+            }
+        }
+        sheet.Save(file, System.Drawing.Imaging.ImageFormat.Png);
     }
 
     /// <summary>Lays the element out on its own and renders it at 150% (as on a typical laptop).</summary>
