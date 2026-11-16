@@ -1,7 +1,7 @@
 # TylerCast
 
 A macOS menu bar app that mirrors the Mac's main display, with its sound, to a
-DLNA TV (built for and tried on a DLNA TV). It began as Phase 2
+DLNA TV (built for and tried on one older smart TV). It began as Phase 2
 of a Python script, `mirror.py` (ffmpeg + BlackHole), called "Phase 1" below,
 and needs neither ffmpeg nor BlackHole. It uses Apple frameworks only and has no
 third-party dependencies.
