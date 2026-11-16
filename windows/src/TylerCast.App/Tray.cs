@@ -150,6 +150,8 @@ internal sealed class TrayHost
     private readonly Window _menuOwner;
     private SettingsWindow? _settings;
     private IntPtr _hicon;
+    /// <summary>Set once Exit or sign-out starts: the icon is going away, so nothing redraws it.</summary>
+    private bool _exiting;
 
     public TrayHost(bool background)
     {
@@ -253,6 +255,7 @@ internal sealed class TrayHost
     private async void Exit()
     {
         Log.Info("Exit");
+        _exiting = true;
         _icon.Visible = false;
         try { await _model.ShutdownAsync().WaitAsync(TimeSpan.FromSeconds(4)); }
         catch (Exception e) { Log.Warn($"Stopping on exit: {e.Message}"); }
@@ -263,6 +266,7 @@ internal sealed class TrayHost
     /// <summary>Stops casting when Windows signs out or shuts down, so the TV gets Stop.</summary>
     public void SessionEnding()
     {
+        _exiting = true;
         try { _model.ShutdownAsync().Wait(TimeSpan.FromSeconds(3)); }
         catch { }
         _icon.Visible = false;
@@ -274,6 +278,8 @@ internal sealed class TrayHost
     /// </summary>
     private void UpdateIcon()
     {
+        // The session's "stopped" arrives after Exit has removed the icon (round 4).
+        if (_exiting) return;
         var light = WinTheme.TaskbarLight;
         var colour = _model.IsActive ? WinTheme.Accent(light) : light ? Drawing.Color.Black : Drawing.Color.White;
         var size = Forms.SystemInformation.SmallIconSize.Width;
